@@ -94,7 +94,7 @@ const isImageSegment = (m: number) => (m >= 0xc0 && m <= 0xcf && m !== 0xc8) || 
 function jpegCategory(marker: number, seg: Uint8Array): string | null {
   const id = ascii(seg, 4, 29)
   if (isImageSegment(marker)) return null
-  if (marker === 0xee) return id.startsWith('Adobe') ? null : 'Other metadata'
+  if (marker === 0xee) return id.startsWith('Adobe') && seg.length >= 16 ? null : 'Other metadata' // rebuilt in stripJpeg
   if (marker === 0xe0) return id.startsWith('JFIF\0') ? null : 'Embedded thumbnail'
   if (marker === 0xe2) return id.startsWith('ICC_PROFILE\0') ? null : id.startsWith('MPF') ? 'Extra embedded images (depth map, HDR)' : 'Other metadata'
   if (marker === 0xe1) return id.startsWith('Exif') ? 'EXIF data' : id.startsWith('http://ns.adobe.com/') ? 'XMP metadata' : 'Other metadata'
@@ -113,6 +113,10 @@ function jfifWithoutThumbnail(seg: Uint8Array): { seg: Uint8Array; hadThumbnail:
   out[16] = 0; out[17] = 0
   return { seg: out, hadThumbnail }
 }
+
+/** A canonical 16-byte Adobe APP14 carrying only the colour-transform byte the decoder needs. */
+const adobeSegment = (transform: number) =>
+  new Uint8Array([0xff, 0xee, 0x00, 0x0e, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, transform])
 
 const isRestart = (m: number) => m >= 0xd0 && m <= 0xd7
 
@@ -157,6 +161,11 @@ export function stripJpeg(b: Uint8Array, orientation?: number): { data: Uint8Arr
       const jfif = jfifWithoutThumbnail(seg)
       if (jfif.hadThumbnail) removed.add('Embedded thumbnail')
       out.push(jfif.seg)
+      continue
+    }
+    if (m === 0xee) {
+      if (seg.length !== 16) removed.add('Other metadata')
+      out.push(adobeSegment(seg[15]!))
       continue
     }
     if (m === 0xe2 && !kept.includes('Colour profile')) kept.push('Colour profile')
