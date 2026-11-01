@@ -1,2 +1,0 @@
-[   71739ms] [ERROR] Connecting to 'blob:http://localhost:4173/b6a709a9-f3f3-4f50-bb65-f50e7d611639' violates the following Content Security Policy directive: "connect-src 'self'". The action has been blocked. @ :0
-[   71739ms] [ERROR] Fetch API cannot load blob:http://localhost:4173/b6a709a9-f3f3-4f50-bb65-f50e7d611639. Refused to connect because it violates the document's Content Security Policy. @ :0

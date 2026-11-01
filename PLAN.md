@@ -1,6 +1,7 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** plan approved 2026-11-01. Phase 1 not started.
+**Status:** Phase 1 built and verified on branch `phase-1` (2026-11-01), waiting for review before merging to `main`. Phase 2 not started.
+Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 
 ## Context
 This is a new build in an empty folder, `R:\Projects\Switchlet`. The app is a file converter where nothing is ever uploaded: every conversion runs in the browser using WASM, Web Workers and the browser's built-in codecs. Privacy is the product, and the app has to show it, not just claim it. It should be fast, need no sign-up, be strictly secured, and keep people coming back with recipes, offline use and a share target.

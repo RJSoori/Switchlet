@@ -93,7 +93,8 @@ const isImageSegment = (m: number) => (m >= 0xc0 && m <= 0xcf && m !== 0xc8) || 
 /** Allow-list: image segments, JFIF (rebuilt without thumbnail), ICC profile and Adobe colour transform. Everything else is removed. */
 function jpegCategory(marker: number, seg: Uint8Array): string | null {
   const id = ascii(seg, 4, 29)
-  if (isImageSegment(marker) || marker === 0xee) return null
+  if (isImageSegment(marker)) return null
+  if (marker === 0xee) return id.startsWith('Adobe') ? null : 'Other metadata'
   if (marker === 0xe0) return id.startsWith('JFIF\0') ? null : 'Embedded thumbnail'
   if (marker === 0xe2) return id.startsWith('ICC_PROFILE\0') ? null : id.startsWith('MPF') ? 'Extra embedded images (depth map, HDR)' : 'Other metadata'
   if (marker === 0xe1) return id.startsWith('Exif') ? 'EXIF data' : id.startsWith('http://ns.adobe.com/') ? 'XMP metadata' : 'Other metadata'

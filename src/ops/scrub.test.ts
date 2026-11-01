@@ -105,6 +105,16 @@ describe('JPEG scrub', () => {
     expect(indexOf(data, [0x33, 0x44, 0xff, 0xd9])).toBeGreaterThan(0)
   })
 
+  it('keeps a genuine Adobe APP14 segment and drops anything else using that marker', () => {
+    const adobe = [0xff, 0xee, ...u16(14), ...str('Adobe'), 0, 100, 0, 0, 0, 0, 1]
+    const fake = [0xff, 0xee, ...u16(10), ...str('secret!!')]
+    const b = new Uint8Array([0xff, 0xd8, ...adobe, ...fake, ...jpeg().subarray(2)])
+    const { data, report } = scrubImage(b, 'jpeg')
+    expect(indexOf(data, str('Adobe'))).toBeGreaterThan(0)
+    expect(indexOf(data, str('secret!!'))).toBe(-1)
+    expect(report.removed).toContain('Other metadata')
+  })
+
   it('cuts a JFIF thumbnail but keeps the JFIF header', () => {
     const thumb = [0xff, 0xe0, ...u16(16 + 6), ...str('JFIF'), 0, 1, 1, 0, 0, 72, 0, 72, 1, 2, 9, 9, 9, 9, 9, 9]
     const b = new Uint8Array([0xff, 0xd8, ...thumb, ...jpeg().subarray(20)])
