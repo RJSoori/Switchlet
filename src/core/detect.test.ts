@@ -91,7 +91,8 @@ describe('limits', () => {
     expect(limitProblem({ kind: 'svg', label: 'SVG image', group: 'none' }, 10)).toMatch(/scripts/)
   })
   it('formats sizes', () => {
-    expect(formatBytes(512)).toBe('512 byte')
+    expect(formatBytes(512)).toBe('512 bytes')
+    expect(formatBytes(1)).toBe('1 byte')
     expect(formatBytes(3_200_000)).toBe('3.2 MB')
   })
 })

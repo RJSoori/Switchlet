@@ -1,0 +1,90 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - button "Switchlet, start over" [ref=f2e5]: Switchlet
+    - link "0 requests to other servers" [ref=f2e11] [cursor=pointer]:
+      - /url: "#proof"
+  - main [ref=f2e12]:
+    - region "Your files" [ref=f2e40]:
+      - generic [ref=f2e41]:
+        - heading "broken.jpg JPEG image, 5 kB" [level=1] [ref=f2e42]:
+          - generic [ref=f2e43]: broken.jpg
+          - generic [ref=f2e44]: JPEG image, 5 kB
+        - button "Choose other files" [ref=f2e45]
+      - generic [ref=f2e46]:
+        - generic [ref=f2e47]:
+          - img "Original" [ref=f2e49]
+          - alert [ref=f2e50]:
+            - paragraph [ref=f2e51]: This image couldn’t be read. The file may be damaged, or it isn’t really the type its name suggests. Try opening it in another app and saving a fresh copy.
+        - generic [ref=f2e52]:
+          - generic [ref=f2e53]:
+            - generic [ref=f2e54]: Task
+            - radiogroup "Task" [ref=f2e56]:
+              - generic [ref=f2e57] [cursor=pointer]:
+                - radio "Convert or shrink" [checked] [ref=f2e58]
+                - text: Convert or shrink
+              - generic [ref=f2e59] [cursor=pointer]:
+                - radio "Only remove hidden data" [ref=f2e60]
+                - text: Only remove hidden data
+          - generic [ref=f2e61]:
+            - generic [ref=f2e62]: Format
+            - generic [ref=f2e63]:
+              - radiogroup "Format" [ref=f2e64]:
+                - generic [ref=f2e65] [cursor=pointer]:
+                  - radio "JPG" [checked] [ref=f2e66]
+                  - text: JPG
+                - generic [ref=f2e67] [cursor=pointer]:
+                  - radio "WebP" [ref=f2e68]
+                  - text: WebP
+                - generic [ref=f2e69] [cursor=pointer]:
+                  - radio "AVIF" [ref=f2e70]
+                  - text: AVIF
+                - generic [ref=f2e71] [cursor=pointer]:
+                  - radio "PNG" [ref=f2e72]
+                  - text: PNG
+              - paragraph [ref=f2e73]: Opens everywhere. Best for photos. Hidden data like location is always removed.
+          - generic [ref=f2e75]:
+            - generic [ref=f2e76]: Size
+            - generic [ref=f2e77]:
+              - radiogroup "Size" [ref=f2e78]:
+                - generic [ref=f2e79] [cursor=pointer]:
+                  - radio "Original" [checked] [ref=f2e80]
+                  - text: Original
+                - generic [ref=f2e81] [cursor=pointer]:
+                  - radio "3840 px" [ref=f2e82]
+                  - text: 3840 px
+                - generic [ref=f2e83] [cursor=pointer]:
+                  - radio "2560 px" [ref=f2e84]
+                  - text: 2560 px
+                - generic [ref=f2e85] [cursor=pointer]:
+                  - radio "1920 px" [ref=f2e86]
+                  - text: 1920 px
+                - generic [ref=f2e87] [cursor=pointer]:
+                  - radio "1080 px" [ref=f2e88]
+                  - text: 1080 px
+                - generic [ref=f2e89] [cursor=pointer]:
+                  - radio "720 px" [ref=f2e90]
+                  - text: 720 px
+                - generic [ref=f2e91] [cursor=pointer]:
+                  - radio "Custom" [ref=f2e92]
+                  - text: Custom
+              - paragraph [ref=f2e93]: Longest side. Images are never made larger.
+          - generic [ref=f2e94]:
+            - generic [ref=f2e95]: Quality
+            - generic [ref=f2e96]:
+              - generic [ref=f2e97]:
+                - slider "Quality" [ref=f2e98]: "80"
+                - status [ref=f2e99]: "80"
+              - paragraph [ref=f2e100]: Lower makes smaller files. Most photos look unchanged from about 75.
+    - region [ref=f2e20]:
+      - heading "What leaves this device" [level=2] [ref=f2e21]
+      - generic [aria-hidden] [ref=f2e22]:
+        - generic [ref=f2e23]: This device
+        - generic [ref=f2e24]: Other servers
+      - generic [ref=f2e32]:
+        - paragraph [ref=f2e33]: Your files are opened and converted here, in this browser tab. They don’t leave this device.
+        - generic [ref=f2e34]:
+          - paragraph [ref=f2e35]: "0"
+          - paragraph [ref=f2e36]: requests to other servers since you opened this page
+      - group [ref=f2e37]:
+        - generic "How Switchlet shows this" [ref=f2e38] [cursor=pointer]
+  - generic [ref=f2e39]: Added broken.jpg.

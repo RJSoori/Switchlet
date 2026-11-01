@@ -25,6 +25,14 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 /* ---------- report (EXIF details via ExifReader) ---------- */
 
+/** "2024:06:01 18:42:07" → "1 June 2024 at 18:42". Anything unparseable is shown as written. */
+export function exifDate(raw?: string): string | undefined {
+  const m = raw?.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2})/)
+  if (!m) return raw
+  const d = new Date(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!)
+  return Number.isNaN(d.getTime()) ? raw : new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short' }).format(d)
+}
+
 type Tag = { description?: unknown; value?: unknown } | undefined
 
 export function describeMetadata(input: ArrayBuffer | Uint8Array): { found: Finding[]; orientation?: number } {
@@ -54,7 +62,7 @@ export function describeMetadata(input: ArrayBuffer | Uint8Array): { found: Find
   const make = text('Make'), model = text('Model')
   add('Camera', make && model && !model.startsWith(make) ? `${make} ${model}` : model ?? make)
   add('Lens', text('LensModel'))
-  add('Date taken', text('DateTimeOriginal', 'DateTimeDigitized', 'DateTime'))
+  add('Date taken', exifDate(text('DateTimeOriginal', 'DateTimeDigitized', 'DateTime')))
   add('Software', text('Software'))
   add('Device serial number', text('BodySerialNumber', 'CameraSerialNumber', 'LensSerialNumber'))
   add('Owner name', text('Artist', 'CameraOwnerName'))

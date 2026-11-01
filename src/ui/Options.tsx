@@ -19,8 +19,8 @@ interface ChoiceProps<T extends string> {
 function Choice<T extends string>({ label, value, options, onChange, hint }: ChoiceProps<T>) {
   const id = useId()
   return (
-    <div className="grid gap-2 sm:grid-cols-[7rem_1fr] sm:gap-x-6">
-      <span id={id} className="pt-1.5 text-muted">{label}</span>
+    <div className="grid gap-2 @lg:grid-cols-[7rem_1fr] @lg:gap-x-6">
+      <span id={id} className="text-muted @lg:pt-1.5">{label}</span>
       <div>
         <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap gap-1.5">
           {options.map((o) => (
@@ -72,7 +72,7 @@ function SizeChoice({ value, dims, onChange }: { value: number | null; dims?: { 
         hint={out ? `Longest side. Output: ${out.width.toLocaleString('en')} × ${out.height.toLocaleString('en')} pixels.` : 'Longest side. Images are never made larger.'}
       />
       {customMode && (
-        <div className="mt-3 sm:ml-[calc(7rem+1.5rem)]">
+        <div className="mt-3 @lg:ml-[calc(7rem+1.5rem)]">
           <label htmlFor={inputId} className="text-sm text-muted">Longest side in pixels (16–20,000)</label>
           <input
             id={inputId}
@@ -99,7 +99,7 @@ export function Options({ step, onChange, canScrub, dims }: { step: Step; onChan
   const qualityId = useId()
 
   return (
-    <div className="space-y-6">
+    <div className="@container space-y-6">
       {canScrub && (
         <Choice
           label="Task"
@@ -120,7 +120,7 @@ export function Options({ step, onChange, canScrub, dims }: { step: Step; onChan
           />
           <SizeChoice value={s.maxSide} dims={dims} onChange={(maxSide) => convert({ maxSide })} />
           {s.format !== 'png' && (
-            <div className="grid gap-2 sm:grid-cols-[7rem_1fr] sm:gap-x-6">
+            <div className="grid gap-2 @lg:grid-cols-[7rem_1fr] @lg:gap-x-6">
               <label htmlFor={qualityId} className="text-muted">Quality</label>
               <div>
                 <div className="flex items-center gap-4">

@@ -153,7 +153,7 @@ const bytesFormat = (unit: string, digits: number) =>
   new Intl.NumberFormat('en', { style: 'unit', unit, unitDisplay: 'short', maximumFractionDigits: digits })
 
 export function formatBytes(n: number): string {
-  if (n < 1000) return bytesFormat('byte', 0).format(n)
+  if (n < 1000) return `${n} ${n === 1 ? 'byte' : 'bytes'}`
   if (n < MB) return bytesFormat('kilobyte', 0).format(n / 1000)
   if (n < 1000 * MB) return bytesFormat('megabyte', 1).format(n / MB)
   return bytesFormat('gigabyte', 2).format(n / (1000 * MB))

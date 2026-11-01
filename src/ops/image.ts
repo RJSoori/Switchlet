@@ -65,7 +65,7 @@ export async function convertImage(input: Uint8Array<ArrayBuffer>, kind: Kind, s
   progress(1, 'Done')
 
   const kept = orientation && orientation !== 1 ? ['Orientation, applied to the pixels'] : []
-  const removed = found.length ? ['All metadata: only the pixels were re-encoded'] : []
+  const removed = found.length ? ['all metadata (only the pixels are kept)'] : []
   return { data, width, height, report: { found, removed, kept }, preview }
 }
 

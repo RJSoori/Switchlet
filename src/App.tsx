@@ -26,7 +26,7 @@ export interface Item {
 }
 
 const unsupported = (d: Detected) =>
-  `Switchlet can’t convert ${d.kind === 'unknown' ? 'this kind of file' : `${d.label}s`} yet. Right now it works with photos and images: JPG, PNG, WebP, AVIF, HEIC and GIF.`
+  `${d.kind === 'unknown' ? 'This kind of file' : `${d.label}s`} can’t be converted yet. Right now Switchlet works with photos and images: JPG, PNG, WebP, AVIF, HEIC and GIF.`
 
 let nextId = 1
 startNetworkLog()
@@ -133,7 +133,9 @@ export function App() {
     batchCtrl.current = ctrl
     setBatch({ running: true, startedAt: performance.now() })
     setAnnouncement(`Converting ${usable.length} files.`)
-    await runPool(usable, poolSize(), (it) => convert(it, step, ctrl.signal, false).then(() => {}))
+    // AVIF and PNG encoders already use every core internally; running several at once only adds threads.
+    const parallelEncoder = step.op === 'image.convert' && (step.settings.format === 'avif' || step.settings.format === 'png')
+    await runPool(usable, parallelEncoder ? 1 : poolSize(), (it) => convert(it, step, ctrl.signal, false).then(() => {}))
     releaseWorkers()
     setBatch((b) => b && { ...b, running: false })
     setAnnouncement(ctrl.signal.aborted ? 'Conversion cancelled.' : 'All files converted.')
@@ -237,9 +239,9 @@ export function App() {
             {notice && <p className="mt-4 text-muted">{notice}</p>}
 
             {single && step ? (
-              <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-                <Options step={step} onChange={setStep} canScrub={canScrub} dims={single.detected.width ? { width: single.detected.width, height: single.detected.height! } : single.output?.width ? { width: single.output.width, height: single.output.height! } : undefined} />
+              <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
                 <SingleResult item={single} onCancel={() => { singleCtrl.current?.abort(); patch(single.id, { status: 'cancelled' }) }} onRetry={() => setRunNonce((n) => n + 1)} />
+                <Options step={step} onChange={setStep} canScrub={canScrub} dims={single.detected.width ? { width: single.detected.width, height: single.detected.height! } : single.output?.width ? { width: single.output.width, height: single.output.height! } : undefined} />
               </div>
             ) : items.length === 1 ? (
               <div role="alert" className="mt-8 max-w-[60ch] space-y-4">
@@ -263,13 +265,17 @@ export function App() {
                     </>
                   ) : (
                     usable.length > 0 && step && (
-                      <button type="button" onClick={convertAll} className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110">
+                      <button
+                        type="button"
+                        onClick={convertAll}
+                        className={doneCount ? 'rounded-lg border border-line px-5 py-3 font-semibold hover:border-ink' : 'rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110'}
+                      >
                         {doneCount ? `Convert ${usable.length} files again` : `Convert ${usable.length} ${usable.length === 1 ? 'file' : 'files'}`}
                       </button>
                     )
                   )}
                   {!batch?.running && doneCount > 0 && (
-                    <button type="button" onClick={downloadZip} className="rounded-lg border border-jade px-5 py-3 font-semibold text-jade hover:bg-jade hover:text-on-jade">
+                    <button type="button" onClick={downloadZip} className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110">
                       Download all as ZIP ({formatBytes(zipSize)})
                     </button>
                   )}

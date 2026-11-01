@@ -96,7 +96,7 @@ export function SingleResult({ item, onCancel, onRetry }: { item: Item; onCancel
 
   return (
     <div className="space-y-6">
-      <Compare item={item} />
+      {(item.status !== 'error' || out) && <Compare item={item} />}
 
       {item.status === 'running' && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2" role="status">

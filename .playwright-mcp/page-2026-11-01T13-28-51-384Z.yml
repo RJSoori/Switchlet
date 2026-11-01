@@ -1,0 +1,105 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "Switchlet, start over" [ref=e5]: Switchlet
+    - link "0 requests to other servers" [ref=e11] [cursor=pointer]:
+      - /url: "#proof"
+  - main [ref=e12]:
+    - region "Your files" [ref=e40]:
+      - generic [ref=e41]:
+        - heading "harbour-gps.jpg JPEG image, 1200 × 800, 66 kB" [level=1] [ref=e42]:
+          - generic [ref=e43]: harbour-gps.jpg
+          - generic [ref=e44]: JPEG image, 1200 × 800, 66 kB
+        - button "Choose other files" [ref=e45]
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]:
+            - generic [ref=e49]: Task
+            - radiogroup "Task" [ref=e51]:
+              - generic [ref=e52] [cursor=pointer]:
+                - radio "Convert or shrink" [checked] [ref=e53]
+                - text: Convert or shrink
+              - generic [ref=e54] [cursor=pointer]:
+                - radio "Only remove hidden data" [ref=e55]
+                - text: Only remove hidden data
+          - generic [ref=e56]:
+            - generic [ref=e57]: Format
+            - generic [ref=e58]:
+              - radiogroup "Format" [ref=e59]:
+                - generic [ref=e60] [cursor=pointer]:
+                  - radio "JPG" [checked] [ref=e61]
+                  - text: JPG
+                - generic [ref=e62] [cursor=pointer]:
+                  - radio "WebP" [ref=e63]
+                  - text: WebP
+                - generic [ref=e64] [cursor=pointer]:
+                  - radio "AVIF" [ref=e65]
+                  - text: AVIF
+                - generic [ref=e66] [cursor=pointer]:
+                  - radio "PNG" [ref=e67]
+                  - text: PNG
+              - paragraph [ref=e68]: Opens everywhere. Best for photos. Hidden data like location is always removed.
+          - generic [ref=e70]:
+            - generic [ref=e71]: Size
+            - generic [ref=e72]:
+              - radiogroup "Size" [ref=e73]:
+                - generic [ref=e74] [cursor=pointer]:
+                  - radio "Original" [checked] [ref=e75]
+                  - text: Original
+                - generic [ref=e76] [cursor=pointer]:
+                  - radio "1080 px" [ref=e77]
+                  - text: 1080 px
+                - generic [ref=e78] [cursor=pointer]:
+                  - radio "720 px" [ref=e79]
+                  - text: 720 px
+                - generic [ref=e80] [cursor=pointer]:
+                  - radio "Custom" [ref=e81]
+                  - text: Custom
+              - paragraph [ref=e82]: "Longest side. Output: 1,200 × 800 pixels."
+          - generic [ref=e83]:
+            - generic [ref=e84]: Quality
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - slider "Quality" [ref=e87]: "80"
+                - status [ref=e88]: "80"
+              - paragraph [ref=e89]: Lower makes smaller files. Most photos look unchanged from about 75.
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - img "Original" [ref=e92]
+            - img "Converted" [ref=e93]
+            - generic: Original
+            - generic: Converted
+            - slider "Compare original and converted. Move left to see more of the converted image." [ref=e94]: "50"
+          - generic [ref=e95]:
+            - generic [ref=e96]:
+              - paragraph [ref=e97]:
+                - text: 66 kB to
+                - strong [ref=e98]: 19 kB
+              - paragraph [ref=e99]: 71% smaller
+            - link "Download harbour-gps.jpg" [ref=e100] [cursor=pointer]:
+              - /url: blob:http://localhost:4173/bab7f84b-9c94-4659-b7e9-23957919a626
+          - region [ref=e101]:
+            - heading "Hidden data removed from the new copy" [level=3] [ref=e102]
+            - generic [ref=e103]:
+              - generic [ref=e104]:
+                - term [ref=e105]: GPS location
+                - definition [ref=e106]: 51.5007, -0.1246
+              - generic [ref=e107]:
+                - term [ref=e108]: Camera
+                - definition [ref=e109]: Apple iPhone 15 Pro
+              - generic [ref=e110]:
+                - term [ref=e111]: Date taken
+                - definition [ref=e112]: 2024:06:01 18:42:07
+            - paragraph [ref=e113]: "Removed: All metadata: only the pixels were re-encoded."
+    - region [ref=e20]:
+      - heading "What leaves this device" [level=2] [ref=e21]
+      - generic [aria-hidden] [ref=e22]:
+        - generic [ref=e23]: This device
+        - generic [ref=e24]: Other servers
+      - generic [ref=e32]:
+        - paragraph [ref=e33]: Your files are opened and converted here, in this browser tab. They don’t leave this device.
+        - generic [ref=e34]:
+          - paragraph [ref=e35]: "0"
+          - paragraph [ref=e36]: requests to other servers since you opened this page
+      - group [ref=e37]:
+        - generic "How Switchlet shows this" [ref=e38] [cursor=pointer]
+  - generic [ref=e39]: harbour-gps.jpg is ready, 19 kB.

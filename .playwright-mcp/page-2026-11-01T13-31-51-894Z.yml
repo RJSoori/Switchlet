@@ -1,0 +1,25 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - button "Switchlet, start over" [ref=f1e5]: Switchlet
+    - link "0 requests to other servers" [ref=f1e11] [cursor=pointer]:
+      - /url: "#proof"
+  - main [ref=f1e12]:
+    - generic [ref=f1e13]:
+      - heading "Convert files without uploading them." [level=1] [ref=f1e14]
+      - paragraph [ref=f1e15]: Switchlet converts, shrinks and cleans up photos right here in your browser. Nothing you add is sent anywhere, and the counter at the bottom of this page shows it.
+      - button "Drop photos anywhere on this page or choose files, or paste with Ctrl+V JPG, PNG, WebP, AVIF, HEIC and GIF. Up to 200 at a time." [ref=f1e16]:
+        - generic [ref=f1e17]: Drop photos anywhere on this page
+        - generic [ref=f1e18]: or choose files, or paste with Ctrl+V
+        - generic [ref=f1e19]: JPG, PNG, WebP, AVIF, HEIC and GIF. Up to 200 at a time.
+    - region [ref=f1e20]:
+      - heading "What leaves this device" [level=2] [ref=f1e21]
+      - generic [aria-hidden] [ref=f1e22]:
+        - generic [ref=f1e23]: This device
+        - generic [ref=f1e24]: Other servers
+      - generic [ref=f1e32]:
+        - paragraph [ref=f1e33]: Your files are opened and converted here, in this browser tab. They don’t leave this device.
+        - generic [ref=f1e34]:
+          - paragraph [ref=f1e35]: "0"
+          - paragraph [ref=f1e36]: requests to other servers since you opened this page
+      - group [ref=f1e37]:
+        - generic "How Switchlet shows this" [ref=f1e38] [cursor=pointer]
