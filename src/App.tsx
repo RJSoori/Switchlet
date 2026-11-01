@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { detectFile, formatBytes, limitProblem, LIMITS, type Detected } from './core/detect'
-import { friendlyError, poolSize, releaseWorkers, runPool, runStep, zipBlobs, etaSeconds } from './core/jobs'
+import { etaSeconds, friendlyError, mediaCapabilities, poolSize, releaseWorkers, runPool, runStep, zipBlobs } from './core/jobs'
 import { startNetworkLog } from './core/network'
-import { OPS, defaultOp, makeStep, opsFor, stem, type OpId, type Step, type TaskResult } from './core/ops'
+import { OPS, defaultOp, makeStep, opsFor, stem, type MediaCaps, type OpId, type Step, type TaskResult } from './core/ops'
 import { BatchList } from './ui/Batch'
 import { download, pasteShortcut, percent } from './ui/hooks'
 import { Options } from './ui/Options'
 import { JobResult } from './ui/Outputs'
 import { PageSorter } from './ui/PageSorter'
 import { Proof, useRequestsElsewhere } from './ui/Proof'
+import { MediaStage, RunMedia } from './ui/MediaStage'
 import { ImageResult } from './ui/Result'
 
 export type Output = Omit<TaskResult, 'files'> & { files: { blob: Blob; name: string }[] }
@@ -30,10 +31,11 @@ export interface Item extends Job {
 }
 
 const IDLE: Job = { status: 'idle', progress: 0, stage: '' }
-const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, Markdown, HTML, CSV, JSON and Excel files'
+const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, video (MP4, MOV, WebM, MKV), audio (MP3, WAV, M4A, OGG, FLAC), Markdown, HTML, CSV, JSON and Excel files'
 const unsupported = (d: Detected) => `${d.kind === 'unknown' ? 'This kind of file' : `${d.label}s`} can’t be converted yet. Switchlet works with ${SUPPORTED}.`
 /** Tasks whose output is the same kind of file, where "X kB to Y kB, 40% smaller" means something. */
-const SAME_KIND = new Set<OpId>(['pdf.compress', 'pdf.scrub', 'pdf.pages'])
+const SAME_KIND = new Set<OpId>(['pdf.compress', 'pdf.scrub', 'pdf.pages', 'video.convert'])
+const MEDIA_OPS = new Set<OpId>(['video.convert', 'video.trim', 'video.gif', 'media.audio'])
 const VERB: Partial<Record<OpId, string>> = { 'image.scrub': 'Clean', 'pdf.scrub': 'Clean', 'pdf.split': 'Split', 'pdf.compress': 'Shrink' }
 
 const toOutput = (r: TaskResult): Output => ({
@@ -53,6 +55,9 @@ export function App() {
   const [announcement, setAnnouncement] = useState('')
   const [batch, setBatch] = useState<{ running: boolean; startedAt: number } | null>(null)
   const [runNonce, setRunNonce] = useState(0)
+  const [caps, setCaps] = useState<MediaCaps>()
+  /** Settings of the last on-demand (audio/video) run, to tell when the result no longer matches them. */
+  const [ranKey, setRanKey] = useState<string | null>(null)
   const session = useRef(0)
   const batchCtrl = useRef<AbortController | null>(null)
   const singleCtrl = useRef<AbortController | null>(null)
@@ -70,6 +75,7 @@ export function App() {
     setCombo(IDLE)
     setBatch(null)
     setNotice(null)
+    setRanKey(null)
   }, [])
 
   const addFiles = useCallback(async (files: File[]) => {
@@ -126,9 +132,28 @@ export function App() {
   const combines = !!step && !!OPS[step.op].combines && usable.length > 1
   const stepKey = JSON.stringify(step)
 
+  // Audio/video: ask the worker once which formats this browser can create, to grey out the rest.
+  const hasMedia = usable.some((it) => it.detected.group === 'media')
+  useEffect(() => {
+    if (hasMedia && !caps) mediaCapabilities().then(setCaps, () => {})
+  }, [hasMedia, caps])
+
+  // Audio/video on a single file: runs when the user presses the button (encoding is heavy).
+  const runSingle = () => {
+    if (!single || !step) return
+    singleCtrl.current?.abort()
+    const ctrl = new AbortController()
+    singleCtrl.current = ctrl
+    setRanKey(stepKey)
+    void convertItem(single, step, ctrl.signal, false).then((out) => {
+      if (out) setAnnouncement(out.files[0] ? `${out.files[0].name} is ready, ${formatBytes(out.files[0].blob.size)}.` : out.note ?? 'Done.')
+    })
+  }
+
   // Single file: run live as settings change (debounced); a newer run cancels the older one.
   useEffect(() => {
     if (!single || !step) return
+    if (OPS[step.op].manual) return
     if (step.op === 'pdf.pages' && !step.settings.order) return // nothing to save until a page moves
     const ctrl = new AbortController()
     singleCtrl.current = ctrl
@@ -170,7 +195,7 @@ export function App() {
     setBatch({ running: true, startedAt: performance.now() })
     setAnnouncement(`Working on ${usable.length} files.`)
     // AVIF and PNG encoders already use every core; main-thread tasks share one thread. One at a time for those.
-    const oneAtATime = !!OPS[step.op].main || (step.op === 'image.convert' && (step.settings.format === 'avif' || step.settings.format === 'png'))
+    const oneAtATime = !!OPS[step.op].main || !!OPS[step.op].manual || (step.op === 'image.convert' && (step.settings.format === 'avif' || step.settings.format === 'png'))
     await runPool(usable, oneAtATime ? 1 : poolSize(), (it) => convertItem(it, step, ctrl.signal, false).then(() => {}))
     releaseWorkers()
     setBatch((b) => b && { ...b, running: false })
@@ -233,6 +258,7 @@ export function App() {
       kind={kind}
       onChange={setStep}
       fileCount={usable.length}
+      caps={caps}
       sheets={single?.output?.sheets}
       dims={single?.detected.width ? { width: single.detected.width, height: single.detected.height! } : single?.output?.width ? { width: single.output.width, height: single.output.height! } : undefined}
     />
@@ -258,7 +284,7 @@ export function App() {
           <section className="pt-8 sm:pt-14">
             <h1 className="max-w-[15ch] text-[clamp(2.6rem,7.5vw,5.25rem)] leading-[1.02] font-light tracking-[-0.025em]">Convert files without uploading them.</h1>
             <p className="mt-6 max-w-[54ch] text-lg leading-relaxed text-muted">
-              Switchlet converts, shrinks and cleans up photos, PDFs and documents right here in your browser. Nothing you add is sent anywhere, and the counter at the bottom of this page shows it.
+              Switchlet converts, shrinks and cleans up photos, PDFs, videos and documents right here in your browser. Nothing you add is sent anywhere, and the counter at the bottom of this page shows it.
             </p>
             <button
               type="button"
@@ -269,7 +295,7 @@ export function App() {
               <span className="text-muted">
                 or <span className="font-medium text-jade underline underline-offset-4">choose files</span>, or paste with {pasteShortcut}
               </span>
-              <span className="mt-4 max-w-[60ch] text-sm text-muted">Photos, PDFs, Markdown, HTML, CSV, JSON and Excel. Up to {LIMITS.batchFiles} at a time.</span>
+              <span className="mt-4 max-w-[60ch] text-sm text-muted">Photos, PDFs, video, audio, Markdown, HTML, CSV, JSON and Excel. Up to {LIMITS.batchFiles} at a time.</span>
             </button>
           </section>
         ) : (
@@ -294,6 +320,31 @@ export function App() {
 
             {single && !step ? (
               <div className="mt-8 max-w-3xl">{options}</div>
+            ) : single && step && MEDIA_OPS.has(step.op) ? (
+              // Phones read top to bottom: player, options, then the button and result. Desktop keeps options at the side.
+              <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-x-10">
+                <div className="min-w-0 lg:col-start-1">
+                  <MediaStage
+                    item={single}
+                    step={step}
+                    onClip={(clip) => {
+                      if (step.op === 'video.trim') setStep({ ...step, settings: clip })
+                      else if (step.op === 'video.gif') setStep({ ...step, settings: { ...step.settings, ...clip } })
+                    }}
+                  />
+                </div>
+                <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">{options}</div>
+                <div className="min-w-0 space-y-6 lg:col-start-1">
+                  <RunMedia item={single} step={step} stale={ranKey !== stepKey} onRun={runSingle} />
+                  <JobResult
+                    job={single}
+                    inputSize={SAME_KIND.has(step.op) ? single.file.size : undefined}
+                    zipName={`${stem(single.file.name)}.zip`}
+                    onCancel={cancelSingle}
+                    onRetry={runSingle}
+                  />
+                </div>
+              </div>
             ) : single && step ? (
               <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
                 <div className="min-w-0 space-y-8">

@@ -1,8 +1,8 @@
 import { useId, useRef, useState } from 'react'
 import type { Kind } from '../core/detect'
 import {
-  DEFAULT_QUALITY, FORMAT_LABEL, IMAGE_FORMATS, OPS, fitWithin, makeStep,
-  type ImageFormat, type ImageSettings, type OpId, type PageSize, type SheetFormat, type Step, type Strength,
+  AUDIO_KINDS, AUDIO_LABEL, DEFAULT_QUALITY, FORMAT_LABEL, IMAGE_FORMATS, OPS, VIDEO_LABEL, fitWithin, makeStep, mediaSupport,
+  type AudioFormat, type ImageFormat, type ImageSettings, type MediaCaps, type MediaQuality, type OpId, type PageSize, type SheetFormat, type Step, type Strength, type VideoContainer,
 } from '../core/ops'
 
 const FORMAT_HINT: Record<ImageFormat, string> = {
@@ -15,7 +15,7 @@ const FORMAT_HINT: Record<ImageFormat, string> = {
 interface ChoiceProps<T extends string> {
   label: string
   value: T | null
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; disabled?: boolean }[]
   onChange: (value: T) => void
   hint?: string
 }
@@ -30,13 +30,16 @@ export function Choice<T extends string>({ label, value, options, onChange, hint
           {options.map((o) => (
             <label
               key={o.value}
-              className="cursor-pointer rounded-md border border-line px-3 py-1.5 select-none hover:border-ink has-checked:border-jade has-checked:bg-jade has-checked:text-on-jade has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-jade"
+              className="cursor-pointer rounded-md border border-line px-3 py-1.5 select-none hover:border-ink has-checked:border-jade has-checked:bg-jade has-checked:text-on-jade has-disabled:cursor-not-allowed has-disabled:border-dashed has-disabled:text-muted has-disabled:hover:border-line has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-jade"
             >
-              <input type="radio" className="sr-only" name={id} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} />
+              <input type="radio" className="sr-only" name={id} value={o.value} checked={value === o.value} disabled={o.disabled} onChange={() => onChange(o.value)} />
               {o.label}
             </label>
           ))}
         </div>
+        {options.some((o) => o.disabled) && (
+          <p className="mt-2 text-sm text-muted">Not available in this browser: {options.filter((o) => o.disabled).map((o) => o.label).join(', ')}.</p>
+        )}
         {hint && <p className="mt-2 text-sm text-muted">{hint}</p>}
       </div>
     </div>
@@ -159,6 +162,16 @@ const TASK_HINT: Partial<Record<OpId, string>> = {
   'pdf.toImages': 'Saves one image per page.',
   'pdf.compress': 'Recompresses the photos inside. Text stays sharp.',
   'pdf.scrub': 'Removes the author, the app that made it, dates, leftovers from earlier edits and location data in embedded photos. The pages look exactly the same.',
+  'video.convert': 'Titles, dates, location and device details are always removed.',
+  'video.trim': 'Choose where the new clip starts and ends. Titles, dates and location are removed.',
+  'video.gif': 'A silent, looping animation of up to 30 seconds.',
+}
+
+const MEDIA_QUALITY_HINT: Record<MediaQuality, string> = {
+  keep: 'Fastest, with no quality loss: the video is repackaged rather than re-encoded where the format allows it.',
+  high: 'Re-encodes the video. Looks almost the same as the original.',
+  medium: 'Re-encodes the video. A good size for sharing.',
+  low: 'Re-encodes the video. Smallest file; visibly softer.',
 }
 
 const STRENGTH_HINT: Record<Strength, string> = {
@@ -170,12 +183,16 @@ const STRENGTH_HINT: Record<Strength, string> = {
 const SHEET_LABEL: Record<SheetFormat, string> = { csv: 'CSV', json: 'JSON', xlsx: 'Excel' }
 
 export function TaskPicker({ ops, step, kind, onChange }: { ops: OpId[]; step: Step | null; kind: Kind; onChange: (s: Step) => void }) {
+  const audioFile = AUDIO_KINDS.includes(kind)
   const hint = step
     ? step.op === 'doc.convert'
       ? kind === 'html' ? 'Turns this HTML page into Markdown.' : 'Turns this into an HTML page. Scripts and other unsafe HTML are removed.'
-      : TASK_HINT[step.op]
+      : step.op === 'media.audio'
+        ? audioFile ? 'Titles, artists, dates and other tags are removed.' : 'Saves just the sound. Titles, dates and location are removed.'
+        : TASK_HINT[step.op]
     : 'Choose what to do with this file.'
-  return <Choice label="Task" value={step?.op ?? null} options={ops.map((op) => ({ value: op, label: OPS[op].label }))} onChange={(op) => onChange(makeStep(op, kind))} hint={hint} />
+  const label = (op: OpId) => (op === 'media.audio' && audioFile ? 'Convert' : OPS[op].label)
+  return <Choice label="Task" value={step?.op ?? null} options={ops.map((op) => ({ value: op, label: label(op) }))} onChange={(op) => onChange(makeStep(op, kind))} hint={hint} />
 }
 
 export function Options(props: {
@@ -186,8 +203,11 @@ export function Options(props: {
   dims?: { width: number; height: number }
   sheets?: string[]
   fileCount: number
+  /** Which audio/video formats this browser can create (unknown until the worker has checked). */
+  caps?: MediaCaps
 }) {
   const { step, onChange, kind } = props
+  const support = props.caps ? mediaSupport(props.caps) : null
   // Remember image settings while the user tries another task and comes back.
   const lastImage = useRef<ImageSettings | null>(null)
   if (step?.op === 'image.convert') lastImage.current = step.settings
@@ -233,6 +253,57 @@ export function Options(props: {
           onChange={(strength) => onChange({ ...step, settings: { strength } })}
           hint={STRENGTH_HINT[step.settings.strength]}
         />
+      )}
+      {step?.op === 'video.convert' && (
+        <>
+          <Choice<VideoContainer>
+            label="Format"
+            value={step.settings.container}
+            options={(['mp4', 'webm', 'mov'] as const).map((c) => ({ value: c, label: VIDEO_LABEL[c], disabled: support ? !support.video[c] : false }))}
+            onChange={(container) => onChange({ ...step, settings: { ...step.settings, container } })}
+            hint={step.settings.container === 'mp4' ? 'Plays almost everywhere.' : step.settings.container === 'webm' ? 'Open format for the web. Some phones and editors can’t open it.' : 'Apple’s format; best for Final Cut and iMovie.'}
+          />
+          <Choice
+            label="Size"
+            value={String(step.settings.maxHeight ?? 'original')}
+            options={[{ value: 'original', label: 'Original' }, { value: '1080', label: '1080p' }, { value: '720', label: '720p' }, { value: '480', label: '480p' }]}
+            onChange={(v) => onChange({ ...step, settings: { ...step.settings, maxHeight: v === 'original' ? null : Number(v) } })}
+            hint="Videos are never made larger."
+          />
+          <Choice<MediaQuality>
+            label="Quality"
+            value={step.settings.quality}
+            options={[{ value: 'keep', label: 'Keep original' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }]}
+            onChange={(quality) => onChange({ ...step, settings: { ...step.settings, quality } })}
+            hint={MEDIA_QUALITY_HINT[step.settings.quality]}
+          />
+        </>
+      )}
+      {step?.op === 'media.audio' && (
+        <Choice<AudioFormat>
+          label="Format"
+          value={step.settings.format}
+          options={(['m4a', 'ogg', 'wav'] as const).map((f) => ({ value: f, label: AUDIO_LABEL[f], disabled: support ? !support.audio[f] : false }))}
+          onChange={(format) => onChange({ ...step, settings: { format } })}
+          hint={step.settings.format === 'm4a' ? 'Small, and plays almost everywhere.' : step.settings.format === 'ogg' ? 'Small and open. Some Apple apps can’t play it.' : 'Uncompressed: perfect quality, very large files.'}
+        />
+      )}
+      {step?.op === 'video.gif' && (
+        <>
+          <Choice
+            label="Width"
+            value={String(step.settings.width)}
+            options={[{ value: '320', label: '320 px' }, { value: '480', label: '480 px' }, { value: '640', label: '640 px' }]}
+            onChange={(w) => onChange({ ...step, settings: { ...step.settings, width: Number(w) } })}
+            hint="GIFs get big quickly; 480 px suits most chats."
+          />
+          <Choice
+            label="Smoothness"
+            value={String(step.settings.fps)}
+            options={[{ value: '10', label: '10 fps' }, { value: '15', label: '15 fps' }]}
+            onChange={(fps) => onChange({ ...step, settings: { ...step.settings, fps: Number(fps) } })}
+          />
+        </>
       )}
       {step?.op === 'sheet.convert' && (
         <>

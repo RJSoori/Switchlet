@@ -107,12 +107,26 @@ function explain(discarded: DiscardedTrack[]): NoticeError {
   return new NoticeError('This recording couldn’t be converted with these settings.')
 }
 
-/** Tracks that were dropped for a reason the user should hear about (an extra audio language, subtitles…). */
-function droppedNote(discarded: DiscardedTrack[]): string {
-  const lost = discarded.filter((d) => d.reason !== 'discarded_by_user')
-  if (!lost.length) return ''
-  const kinds = [...new Set(lost.map((d) => (d.track.type === 'subtitle' ? 'subtitles' : `${d.track.type} track`)))]
-  return ` Not kept: ${kinds.join(', ')} the new format can’t hold.`
+const lostTracks = (c: Conversion) => c.discardedTracks.filter((d) => d.reason !== 'discarded_by_user')
+
+/** A "video" without its picture is a failure, not a result: say why instead of returning the sound alone. */
+function requireVideo(c: Conversion): void {
+  const lost = lostTracks(c).filter((d) => d.track.type === 'video')
+  if (lost.length) throw explain(lost)
+}
+
+/** What else was left out, in plain words (the sound, extra tracks, subtitles). */
+function droppedNote(c: Conversion): string {
+  const notes = new Set<string>()
+  for (const { track, reason } of lostTracks(c)) {
+    if (track.type === 'audio') {
+      notes.add(reason === 'undecodable_source_codec'
+        ? ` The sound wasn’t kept: this browser can’t read its ${codecName(track.codec)} audio.`
+        : reason === 'no_encodable_target_codec' ? ' The sound wasn’t kept: this browser can’t create audio for that format.' : ' Some audio tracks weren’t kept.')
+    } else if (track.type === 'subtitle') notes.add(' Subtitles weren’t kept.')
+    else notes.add(' Extra tracks weren’t kept.')
+  }
+  return [...notes].join('')
 }
 
 async function openOrFail(file: Blob): Promise<Input> {
@@ -136,6 +150,8 @@ async function execute(conversion: Conversion, progress: Progress, stage: string
 
 const resultBuffer = (output: Output) => (output.target as BufferTarget).buffer!
 
+const NO_VIDEO = new NoticeError('This file has no video, only sound. To convert it, choose “Save the audio”.')
+
 /** "clip.mp4" → "clip.mp4" unless that's the input's own name, then "clip-converted.mp4". */
 function outName(input: string, ext: string, suffix = ''): string {
   const name = `${stem(input)}${suffix}.${ext}`
@@ -148,7 +164,8 @@ export async function convertVideo(file: File, s: VideoSettings, progress: Progr
   const input = await openOrFail(file)
   const report = await tagReport(input)
   const track = await input.getPrimaryVideoTrack()
-  const resize = s.maxHeight && track && track.displayHeight > s.maxHeight ? s.maxHeight : undefined // never upscale
+  if (!track) throw NO_VIDEO
+  const resize = s.maxHeight && track.displayHeight > s.maxHeight ? s.maxHeight : undefined // never upscale
   const quality = s.quality === 'keep' ? undefined : new Quality(s.quality)
   const output = new Output({ format: VIDEO[s.container].format(), target: new BufferTarget() })
   const conversion = await Conversion.init({
@@ -156,9 +173,10 @@ export async function convertVideo(file: File, s: VideoSettings, progress: Progr
     video: { height: resize, quality, forceTranscode: s.quality !== 'keep' || undefined },
     audio: { quality },
   })
+  requireVideo(conversion)
   await execute(conversion, progress, s.quality === 'keep' && !resize ? 'Repackaging' : 'Converting')
   const file_: OutFile = { name: outName(file.name, s.container), data: resultBuffer(output), type: VIDEO[s.container].type }
-  return { files: [file_], report, note: (resize ? `Resized to ${resize}p.` : '') + droppedNote(conversion.discardedTracks) || undefined }
+  return { files: [file_], report, note: (resize ? `Resized to ${resize}p.` : '') + droppedNote(conversion) || undefined }
 }
 
 const containerFor = (kind: Kind): VideoContainer => (kind === 'webm' ? 'webm' : kind === 'mov' ? 'mov' : 'mp4')
@@ -175,15 +193,17 @@ async function span(input: Input, clip: Clip): Promise<{ start: number; end: num
 export async function trimVideo(file: File, kind: Kind, clip: Clip, progress: Progress): Promise<TaskResult> {
   const input = await openOrFail(file)
   const report = await tagReport(input)
+  if (!(await input.getPrimaryVideoTrack())) throw NO_VIDEO
   const { start, end, duration } = await span(input, clip)
   const container = containerFor(kind)
   const output = new Output({ format: VIDEO[container].format(), target: new BufferTarget() })
   const conversion = await Conversion.init({ input, output, tags: NO_TAGS, trim: { start, end } })
+  requireVideo(conversion)
   await execute(conversion, progress, 'Trimming')
   return {
     files: [{ name: `${stem(file.name)}-trimmed.${container}`, data: resultBuffer(output), type: VIDEO[container].type }],
     report,
-    note: `${formatTime(end - start)} long, from ${formatTime(start)} to ${formatTime(end)} of ${formatTime(duration)}.${droppedNote(conversion.discardedTracks)}`,
+    note: `${formatTime(end - start)} long, from ${formatTime(start)} to ${formatTime(end)} of ${formatTime(duration)}.${droppedNote(conversion)}`,
   }
 }
 

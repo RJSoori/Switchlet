@@ -76,6 +76,24 @@ describe('repackaging without re-encoding', () => {
   })
 })
 
+describe('browsers without the right codecs', () => {
+  // Node has no WebCodecs, like a browser that can't decode H.264: re-encoding is impossible here.
+  it('fails clearly instead of returning a "video" with only sound', async () => {
+    await expect(convertVideo(clip(), { container: 'webm', maxHeight: null, quality: 'keep' }, noProgress))
+      .rejects.toThrow(/can’t read the H\.264 video in this file/)
+  })
+
+  it('still trims, by copying from the nearest keyframe instead of re-encoding', async () => {
+    const r = await trimVideo(clip(), 'mp4', { start: 0.5, end: 1.5 }, noProgress)
+    expect(r.files[0]!.name).toBe('clip-trimmed.mp4')
+    expect(r.note).toBe('0:01 long, from 0:00.5 to 0:01.5 of 0:02.')
+    const out = open(r.files[0]!.data)
+    expect(await (await out.getPrimaryVideoTrack())!.computeDuration()).toBeCloseTo(1, 1)
+    expect(await out.getPrimaryAudioTrack()).not.toBeNull()
+    expect(describeTags(await out.getMetadataTags())).toEqual([])
+  })
+})
+
 describe('mistakes and odd files', () => {
   it('explains impossible trim ranges before doing any work', async () => {
     await expect(trimVideo(clip(), 'mp4', { start: 5, end: null }, noProgress)).rejects.toThrow(/after the end of the recording \(0:02\)/)

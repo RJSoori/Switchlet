@@ -28,6 +28,11 @@ No other exceptions. Any future one must be unavoidable and documented here.
 ## Expected console messages
 - **"Executing inline event handler violates … script-src-attr"** when converting Markdown or HTML that contains `onerror=`-style attributes. DOMPurify parses the untrusted HTML in an inert document in order to sanitize it, and Chrome checks event-handler attributes against the CSP at parse time. Nothing runs (the document is inert, the CSP blocks it anyway, and DOMPurify removes the attribute). The privacy panel counts only blocked *loads*, so these reports don't change it.
 
+## Audio and video
+- Decoding and encoding use the browser's own WebCodecs (sandboxed, often hardware) through Mediabunny, inside the worker. Files are read in chunks on demand, never loaded whole.
+- Mediabunny copies an input's metadata tags by default; Switchlet always writes none (and no creation time). Phone videos keep location and device details in those tags; the report lists what was dropped.
+- What a browser can decode or encode varies. When a track can't be converted, Switchlet stops and says why rather than handing back a "video" that lost its picture.
+
 ## Main-thread exceptions
 All decoding of untrusted files runs in Web Workers, with two narrow exceptions that need a DOM:
 - **Markdown ↔ HTML:** DOMPurify and turndown, on inputs capped at 5 MB.

@@ -169,6 +169,17 @@ export function Previews({ output }: { output: Output }) {
   )
 }
 
+/** A player (or image) for a single audio, video or GIF result, so it can be checked before downloading. */
+function OutputPreview({ file }: { file: { blob: Blob; name: string } }) {
+  const url = useObjectUrl(file.blob)
+  const type = file.blob.type
+  if (!url) return null
+  if (type.startsWith('video/')) return <video src={url} controls className="max-h-[50vh] w-full rounded-xl border border-rule" aria-label={`Preview of ${file.name}`} />
+  if (type.startsWith('audio/')) return <audio src={url} controls className="w-full" aria-label={`Preview of ${file.name}`} />
+  if (type === 'image/gif') return <img src={url} alt={`Preview of ${file.name}`} className="max-h-[50vh] rounded-xl border border-rule" />
+  return null
+}
+
 /** The result area for every task except single-image conversions (which have the before/after view). */
 export function JobResult({ job, inputSize, zipName, onCancel, onRetry }: { job: Job; inputSize?: number; zipName: string; onCancel: () => void; onRetry: () => void }) {
   const out = job.output
@@ -179,6 +190,7 @@ export function JobResult({ job, inputSize, zipName, onCancel, onRetry }: { job:
         <div className={`space-y-6 transition-opacity ${job.status === 'running' ? 'opacity-60' : ''}`}>
           {out.note && <p className="text-muted">{out.note}</p>}
           <Downloads output={out} inputSize={out.files.length === 1 ? inputSize : undefined} zipName={zipName} />
+          {out.files.length === 1 && <OutputPreview file={out.files[0]!} />}
           <Report report={out.report} />
           <Previews output={out} />
         </div>

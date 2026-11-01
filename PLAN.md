@@ -1,8 +1,9 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phase 1 merged to `main`. Phase 2 built and verified on branch `phase-2` (2026-11-02), waiting for review before merging. Phase 3 (audio/video) not started.
+**Status:** Phases 1 and 2 merged to `main`. Phase 3 (audio/video) built and verified on branch `phase-3` (2026-11-02), waiting for review before merging. Phase 4 not started.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
+Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
 
 ## Context
 This is a new build in an empty folder, `R:\Projects\Switchlet`. The app is a file converter where nothing is ever uploaded: every conversion runs in the browser using WASM, Web Workers and the browser's built-in codecs. Privacy is the product, and the app has to show it, not just claim it. It should be fast, need no sign-up, be strictly secured, and keep people coming back with recipes, offline use and a share target.

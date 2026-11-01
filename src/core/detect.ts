@@ -143,7 +143,9 @@ export function headerDimensions(b: Uint8Array, kind: Kind): { width: number; he
 
 export function detect(head: Uint8Array, name: string): Detected {
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : ''
-  const kind = binaryKind(head) ?? textKind(head, ext) ?? 'unknown'
+  let kind = binaryKind(head) ?? textKind(head, ext) ?? 'unknown'
+  // Many encoders write the generic 'isom' brand for audio-only MP4, so the extension breaks the tie.
+  if (kind === 'mp4' && (ext === 'm4a' || ext === 'm4b')) kind = 'm4a'
   const [label, group] = META[kind]
   return { kind, label, group, ...headerDimensions(head, kind) }
 }

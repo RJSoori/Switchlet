@@ -44,6 +44,8 @@ describe('detect: binary formats by magic bytes', () => {
     expect(detect(ftyp('mif1', 'avif', 'miaf'), 'x').kind).toBe('avif')
     expect(detect(ftyp('isom', 'iso2', 'mp41'), 'x').kind).toBe('mp4')
     expect(detect(ftyp('M4A ', 'isom'), 'x').kind).toBe('m4a')
+    expect(detect(ftyp('isom', 'iso2', 'mp41'), 'song.m4a').kind).toBe('m4a') // generic brand: extension decides
+    expect(detect(ftyp('isom', 'iso2', 'mp41'), 'clip.mp4').kind).toBe('mp4')
     expect(detect(ftyp('qt  ', 'qt  '), 'x').kind).toBe('mov')
     expect(detect(bytes(u32(8), 'moov'), 'x').kind).toBe('mov')
   })
