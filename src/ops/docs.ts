@@ -40,8 +40,8 @@ export function htmlToMarkdown(html: string): string {
 export function previewFragment(html: string): DocumentFragment {
   const fragment = DOMPurify.sanitize(html, {
     ...HTML_ONLY,
-    FORBID_TAGS: ['style', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'video', 'audio', 'source', 'track', 'picture'],
-    FORBID_ATTR: ['style', 'class', 'id'],
+    FORBID_TAGS: ['style', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'video', 'audio', 'source', 'track', 'picture', 'dialog'],
+    FORBID_ATTR: ['style', 'class', 'id', 'background'],
     SANITIZE_NAMED_PROPS: true,
     RETURN_DOM_FRAGMENT: true,
   })

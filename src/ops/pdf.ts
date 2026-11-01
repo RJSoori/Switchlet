@@ -3,7 +3,7 @@
 // unreachable objects are dropped before saving, so leftovers from earlier edits of a file never
 // travel into the new copy.
 import {
-  EncryptedPDFError, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, type PDFObject,
+  EncryptedPDFError, PDFArray, PDFDict, PDFDocument, PDFName, PDFNull, PDFNumber, PDFRawStream, PDFRef, PDFStream, type PDFObject,
 } from '@cantoo/pdf-lib'
 import { LIMITS } from '../core/detect'
 import { parseRanges, stem, type Finding, type InFile, type OutFile, type PageSize, type Strength, type TaskResult } from '../core/ops'
@@ -55,7 +55,13 @@ export function dropUnreachable(doc: PDFDocument): number {
     }
   }
   let dropped = 0
-  for (const [ref] of ctx.enumerateIndirectObjects()) if (!seen.has(ref.tag)) { ctx.delete(ref); dropped++ }
+  for (const [ref, o] of ctx.enumerateIndirectObjects()) {
+    if (seen.has(ref.tag)) continue
+    ctx.delete(ref)
+    // Object and cross-reference streams are file structure the writer rebuilds, not leftover content.
+    const type = o instanceof PDFStream ? o.dict.get(PDFName.of('Type')) : undefined
+    if (type !== PDFName.of('ObjStm') && type !== PDFName.of('XRef')) dropped++
+  }
   return dropped
 }
 
@@ -65,9 +71,49 @@ async function save(doc: PDFDocument): Promise<ArrayBuffer> {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
+/**
+ * pdf-lib's copyPages follows every reference from a kept page, so a link to page 7, a form field spanning
+ * pages, a comment reply or an article thread would copy the whole of page 7 into a file it was "removed" from.
+ * Cut those paths; save() then drops whatever they pulled in.
+ */
+export function isolatePages(doc: PDFDocument): void {
+  const ctx = doc.context
+  const pages = doc.getPages()
+  const kept = new Set(pages.map((p) => p.ref.tag))
+  const isPage = (o: PDFObject | undefined) => o instanceof PDFDict && o.get(name('Type')) === name('Page')
+  for (const page of pages) {
+    page.node.delete(name('B')) // article thread beads
+    const annots = page.node.lookup(name('Annots'))
+    if (!(annots instanceof PDFArray)) continue
+    for (const a of annots.asArray()) {
+      const annot = a instanceof PDFRef ? ctx.lookup(a) : a
+      if (!(annot instanceof PDFDict)) continue
+      annot.delete(name('IRT')) // replies thread to comments on other pages
+      if (annot.get(name('Subtype')) === name('Widget')) annot.delete(name('Parent')) // field trees span pages
+    }
+  }
+  const cut = (o: PDFObject, depth = 0): void => {
+    if (depth > 32) return
+    const dict = o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : null
+    if (dict) {
+      for (const [k, v] of dict.entries()) {
+        if (!(v instanceof PDFRef)) cut(v, depth + 1)
+        else if (!kept.has(v.tag) && isPage(ctx.lookup(v))) dict.set(k, PDFNull)
+      }
+    } else if (o instanceof PDFArray) {
+      o.asArray().forEach((v, i) => {
+        if (!(v instanceof PDFRef)) cut(v, depth + 1)
+        else if (!kept.has(v.tag) && isPage(ctx.lookup(v))) o.set(i, PDFNull)
+      })
+    }
+  }
+  for (const [, o] of ctx.enumerateIndirectObjects()) cut(o) // links and destinations to pages that aren't kept
+}
+
 async function pick(src: PDFDocument, indices: number[]): Promise<ArrayBuffer> {
   const out = await create()
   for (const page of await out.copyPages(src, indices)) out.addPage(page)
+  isolatePages(out)
   return save(out)
 }
 
@@ -231,10 +277,16 @@ const HIDDEN_KEYS: [string, string][] = [
   ['Metadata', 'XMP metadata'],
   ['PieceInfo', 'Private editing data from the app that made it'],
   ['Thumb', 'Page thumbnails'],
+  ['LastModified', 'Edit dates on pages'],
 ]
+
+/** Comment-style annotations (not form widgets, whose /T is the field name). */
+const COMMENT_KEYS: [string, string][] = [['T', 'Comment author names'], ['M', 'Dates on comments'], ['CreationDate', 'Dates on comments']]
+const isComment = (d: PDFDict) => d.has(name('Rect')) && d.get(name('Subtype')) instanceof PDFName && d.get(name('Subtype')) !== name('Widget')
 
 export async function scrubPdf(f: InFile): Promise<TaskResult> {
   const doc = await open(f)
+  const hadInfo = !!doc.context.trailerInfo.Info // pdf-lib's getters create an empty Info dict when there is none
   const found: Finding[] = []
   const add = (label: string, value: unknown) => {
     const text = typeof value === 'string' ? value.trim() : value instanceof Date ? dateText(value) : undefined
@@ -254,7 +306,8 @@ export async function scrubPdf(f: InFile): Promise<TaskResult> {
   const ctx = doc.context
   // Count real leftovers first: the stripping below orphans objects of its own (like the XMP stream).
   if (dropUnreachable(doc) > 0) removed.add('Leftovers from earlier edits')
-  if (ctx.trailerInfo.Info) { ctx.trailerInfo.Info = undefined; removed.add('Document details (title, author, dates, software)') }
+  if (hadInfo) removed.add('Document details (title, author, dates, software)')
+  ctx.trailerInfo.Info = undefined
   if (ctx.trailerInfo.ID) { ctx.trailerInfo.ID = undefined; removed.add('Document ID, which can link copies of a file') }
 
   // Hidden keys, including inside direct (nested) dictionaries and arrays. References are walked as their own objects.
@@ -262,7 +315,8 @@ export async function scrubPdf(f: InFile): Promise<TaskResult> {
     if (depth > 32) return
     const dict = o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : null
     if (dict) {
-      for (const [key, label] of HIDDEN_KEYS) if (dict.has(name(key))) { dict.delete(name(key)); removed.add(label) }
+      const keys = isComment(dict) ? [...HIDDEN_KEYS, ...COMMENT_KEYS] : HIDDEN_KEYS
+      for (const [key, label] of keys) if (dict.has(name(key))) { dict.delete(name(key)); removed.add(label) }
       for (const [, v] of dict.entries()) if (!(v instanceof PDFRef)) strip(v, depth + 1)
     } else if (o instanceof PDFArray) {
       for (const v of o.asArray()) if (!(v instanceof PDFRef)) strip(v, depth + 1)

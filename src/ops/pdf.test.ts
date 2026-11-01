@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFString } from '@cantoo/pdf-lib'
+import { PDFDict, PDFDocument, PDFName, PDFString } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { NoticeError } from './errors'
 import type { InFile } from '../core/ops'
@@ -73,7 +73,59 @@ describe('remove hidden data', () => {
   })
 })
 
+/** Every indirect object's serialized form, to search a whole output file (object streams included). */
+const objectsOf = async (data: ArrayBuffer) =>
+  (await PDFDocument.load(data, { updateMetadata: false })).context.enumerateIndirectObjects().map(([, o]) => o)
+
+describe('removed pages never ride along', () => {
+  /** Page 3 holds a secret. Page 1 links to it and shares a form field with it. */
+  const tangled = () => makePdf(3, (doc) => {
+    const [p1, , p3] = doc.getPages()
+    p3!.node.set(PDFName.of('Marker'), PDFString.of('salary-secret'))
+    const ctx = doc.context
+    const field = ctx.register(ctx.obj({ FT: 'Tx', T: PDFString.of('employee') }))
+    const widget1 = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Widget', Rect: [0, 0, 10, 10], Parent: field, P: p1!.ref }))
+    const widget3 = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Widget', Rect: [0, 0, 10, 10], Parent: field, P: p3!.ref }))
+    ;(ctx.lookup(field) as PDFDict).set(PDFName.of('Kids'), ctx.obj([widget1, widget3]))
+    const link = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 10, 10], Dest: [p3!.ref, 'XYZ', null, null, null] }))
+    p1!.node.set(PDFName.of('Annots'), ctx.obj([link, widget1]))
+    p3!.node.set(PDFName.of('Annots'), ctx.obj([widget3]))
+  })
+
+  it('keeps nothing of a removed page reachable through links or form fields', async () => {
+    for (const r of [await reorder(file(await tangled()), [0, 1]), await split(file(await tangled()), '1-2')]) {
+      const objects = await objectsOf(r.files[0]!.data)
+      expect(objects.filter((o) => o instanceof PDFDict && o.get(PDFName.of('Type')) === PDFName.of('Page'))).toHaveLength(2)
+      expect(objects.some((o) => o.toString().includes('salary-secret'))).toBe(false)
+    }
+  })
+})
+
 describe('honest reporting', () => {
+  it('removes page edit dates and comment authors, but keeps form field names', async () => {
+    const bytes = await makePdf(1, (doc) => {
+      const page = doc.getPages()[0]!
+      const ctx = doc.context
+      page.node.set(PDFName.of('PieceInfo'), ctx.obj({ Illustrator: { Private: PDFString.of('x') } }))
+      page.node.set(PDFName.of('LastModified'), PDFString.of('D:20240601184207+02\'00\''))
+      const comment = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Text', Rect: [0, 0, 10, 10], T: PDFString.of('jdoe-laptop'), M: PDFString.of('D:20240602'), Contents: PDFString.of('note') }))
+      const widget = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Widget', Rect: [0, 0, 10, 10], FT: 'Tx', T: PDFString.of('signature-field') }))
+      page.node.set(PDFName.of('Annots'), ctx.obj([comment, widget]))
+    })
+    const r = await scrubPdf(file(bytes))
+    expect(r.report!.removed).toEqual(expect.arrayContaining(['Edit dates on pages', 'Comment author names', 'Dates on comments']))
+    const all = (await objectsOf(r.files[0]!.data)).map((o) => o.toString()).join('\n')
+    for (const gone of ['jdoe-laptop', 'D:20240601184207', 'D:20240602', '/LastModified']) expect(all).not.toContain(gone)
+    expect(all).toContain('signature-field')
+    expect(all).toContain('note') // the comment itself stays; only who and when go
+  })
+
+  it('does not claim document details or leftovers that were never there', async () => {
+    const r = await scrubPdf(file(await makePdf(1, undefined, true))) // saved with object streams, no Info dict
+    expect(r.report!.removed).not.toContain('Document details (title, author, dates, software)')
+    expect(r.report!.removed).not.toContain('Leftovers from earlier edits')
+  })
+
   it('does not claim leftovers when only the removed XMP was orphaned', async () => {
     const bytes = await makePdf(1, (doc) => {
       const xmp = doc.context.stream('<x:xmpmeta/>', { Type: 'Metadata', Subtype: 'XML' })
