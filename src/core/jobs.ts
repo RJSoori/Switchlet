@@ -1,10 +1,12 @@
 // Runs tasks on a small pool of workers. Cancel = terminate the worker (the only way to stop WASM
 // mid-flight, and it frees the whole WASM heap). Any worker that failed is terminated, never reused.
 import { proxy, wrap, type Remote } from 'comlink'
-import type { Task, TaskResult, WorkerApi } from '../worker'
+import type { Task, WorkerApi } from '../worker'
+import type { Kind } from './detect'
 import { recordRequests } from './network'
+import type { Step, TaskResult } from './ops'
 
-export type JobErrorKind = 'cancelled' | 'damaged' | 'memory' | 'crash'
+export type JobErrorKind = 'cancelled' | 'damaged' | 'memory' | 'crash' | 'notice'
 
 export class JobError extends Error {
   constructor(public kind: JobErrorKind, message: string) {
@@ -17,6 +19,7 @@ export class JobError extends Error {
 export function friendlyError(e: unknown): JobError {
   if (e instanceof JobError) return e
   const err = e instanceof Error ? e : new Error(String(e))
+  if (err.name === 'NoticeError') return new JobError('notice', err.message)
   if (err.name === 'DecodeError') return new JobError('damaged', `${err.message} Try opening it in another app and saving a fresh copy.`)
   if (err.name === 'RangeError' || /memory|allocat|oom/i.test(err.message)) {
     return new JobError('memory', 'Your browser ran out of memory for this file. Try a smaller output size, or close other tabs and try again.')
@@ -60,6 +63,25 @@ async function withWorker<T>(signal: AbortSignal | undefined, fn: (api: Remote<W
 
 export function runTask(task: Task, opts: { signal?: AbortSignal; onProgress?: (fraction: number, stage: string) => void } = {}): Promise<TaskResult> {
   return withWorker(opts.signal, (api) => api.run(task, opts.onProgress && proxy(opts.onProgress)))
+}
+
+/**
+ * Run one step over its input files. Two tasks run on the main thread because they need a DOM:
+ * Markdown ↔ HTML (DOMPurify, turndown) and PDF → images (pdf.js drawing; parsing stays in pdf.js's worker).
+ */
+export async function runStep(
+  step: Step,
+  files: File[],
+  kinds: Kind[],
+  opts: { signal: AbortSignal; onProgress: (fraction: number, stage: string) => void },
+): Promise<TaskResult> {
+  try {
+    if (step.op === 'doc.convert') return await (await import('../ops/docs')).convertDoc(files[0]!, kinds[0]!)
+    if (step.op === 'pdf.toImages') return await (await import('../ui/pdfjs')).pdfToImages(files[0]!, step.settings, opts.signal, opts.onProgress)
+  } catch (e) {
+    throw friendlyError(e)
+  }
+  return runTask({ ...step, files, kinds }, opts)
 }
 
 export async function zipBlobs(entries: { name: string; blob: Blob }[], signal?: AbortSignal): Promise<Blob> {

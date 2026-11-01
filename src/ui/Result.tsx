@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Item } from '../App'
-import { formatBytes, type Kind } from '../core/detect'
-import { etaSeconds } from '../core/jobs'
-import type { MetadataReport } from '../ops/scrub'
+import type { Kind } from '../core/detect'
 import { percent, useObjectUrl } from './hooks'
+import { Downloads, JobStatus, Report } from './Outputs'
 
 /** Formats every browser can display in an <img>. HEIC gets a decoded preview from the worker instead. */
 const DISPLAYABLE = new Set<Kind>(['jpeg', 'png', 'gif', 'webp', 'avif'])
 
-function BitmapCanvas({ bitmap, className }: { bitmap: ImageBitmap; className: string }) {
+export function BitmapCanvas({ bitmap, className, label = 'Original' }: { bitmap: ImageBitmap; className: string; label?: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = ref.current
@@ -17,13 +16,13 @@ function BitmapCanvas({ bitmap, className }: { bitmap: ImageBitmap; className: s
     canvas.height = bitmap.height
     canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
   }, [bitmap])
-  return <canvas ref={ref} className={className} role="img" aria-label="Original" />
+  return <canvas ref={ref} className={className} role="img" aria-label={label} />
 }
 
 function Compare({ item }: { item: Item }) {
   const [split, setSplit] = useState(50)
   const beforeUrl = useObjectUrl(DISPLAYABLE.has(item.detected.kind) ? item.file : undefined)
-  const afterUrl = useObjectUrl(item.output?.blob)
+  const afterUrl = useObjectUrl(item.output?.files[0]?.blob)
   const w = item.output?.width ?? item.detected.width
   const h = item.output?.height ?? item.detected.height
   const img = 'absolute inset-0 h-full w-full object-contain'
@@ -61,81 +60,14 @@ function Compare({ item }: { item: Item }) {
   )
 }
 
-export function Report({ report }: { report?: MetadataReport }) {
-  if (!report) return null
-  if (!report.found.length && !report.removed.length) return <p className="text-muted">No hidden data found in this file.</p>
-  return (
-    <section aria-labelledby="report-title">
-      <h3 id="report-title" className="font-medium">Hidden data removed from the new copy</h3>
-      {report.found.length > 0 && (
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
-          {report.found.map((f) => (
-            <div key={f.label} className="contents">
-              <dt className="text-muted">{f.label}</dt>
-              <dd className="break-words">{f.detail}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {report.removed.length > 0 && <p className="mt-3 text-sm text-muted">Removed: {report.removed.join(', ')}.</p>}
-      {report.kept.length > 0 && <p className="mt-1 text-sm text-muted">Kept: {report.kept.join('; ')}.</p>}
-    </section>
-  )
-}
-
-export function sizeChange(before: number, after: number): string {
-  const delta = after / before - 1
-  if (Math.abs(delta) < 0.005) return 'About the same size'
-  return delta < 0 ? `${percent(-delta)} smaller` : `${percent(delta)} larger than the original`
-}
-
-export function SingleResult({ item, onCancel, onRetry }: { item: Item; onCancel: () => void; onRetry: () => void }) {
+/** Single image: before/after compare, size change, download and the hidden-data report. */
+export function ImageResult({ item, onCancel, onRetry }: { item: Item; onCancel: () => void; onRetry: () => void }) {
   const out = item.output
-  const url = useObjectUrl(out?.blob)
-  const eta = item.startedAt !== undefined ? etaSeconds(item.startedAt, item.progress) : null
-
   return (
     <div className="space-y-6">
       {(item.status !== 'error' || out) && <Compare item={item} />}
-
-      {item.status === 'running' && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2" role="status">
-          <p>
-            {item.stage}… <span className="tabular-nums">{percent(item.progress)}</span>
-            {eta !== null && <span className="text-muted"> about {eta} s left</span>}
-          </p>
-          <button type="button" onClick={onCancel} className="rounded-md border border-line px-3 py-1 hover:border-ink">Cancel</button>
-        </div>
-      )}
-      {item.status === 'error' && (
-        <div role="alert" className="rounded-lg border border-danger/40 p-4">
-          <p className="text-danger">{item.error}</p>
-        </div>
-      )}
-      {item.status === 'cancelled' && (
-        <p>
-          Conversion cancelled.{' '}
-          <button type="button" onClick={onRetry} className="text-jade underline underline-offset-4">Run it again</button>
-        </p>
-      )}
-
-      {out && url && (
-        <div className="flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <p className="text-2xl tabular-nums">
-              {formatBytes(item.file.size)} <span className="text-muted">to</span> <strong className="font-semibold">{formatBytes(out.blob.size)}</strong>
-            </p>
-            <p className="text-muted">{sizeChange(item.file.size, out.blob.size)}</p>
-          </div>
-          <a
-            href={url}
-            download={out.name}
-            className="inline-flex items-center rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110"
-          >
-            Download {out.name}
-          </a>
-        </div>
-      )}
+      <JobStatus job={item} onCancel={onCancel} onRetry={onRetry} />
+      {out && <Downloads output={out} inputSize={item.file.size} zipName="switchlet.zip" />}
       {out && <Report report={out.report} />}
     </div>
   )
