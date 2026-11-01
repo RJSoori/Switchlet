@@ -39,10 +39,11 @@ const META: Record<Kind, [label: string, group: Group]> = {
 /** Bytes to read from the start of a file. Large enough to reach a JPEG frame header after EXIF (APP1 ≤ 64 KB). */
 export const HEAD_BYTES = 128 * 1024
 
-const ascii = (b: Uint8Array, at: number, len: number) => String.fromCharCode(...b.subarray(at, at + len))
-const be16 = (b: Uint8Array, i: number) => ((b[i] ?? 0) << 8) | (b[i + 1] ?? 0)
-const be32 = (b: Uint8Array, i: number) => be16(b, i) * 65536 + be16(b, i + 2)
-const le16 = (b: Uint8Array, i: number) => (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8)
+export const ascii = (b: Uint8Array, at: number, len: number) => String.fromCharCode(...b.subarray(at, at + len))
+export const be16 = (b: Uint8Array, i: number) => ((b[i] ?? 0) << 8) | (b[i + 1] ?? 0)
+export const be32 = (b: Uint8Array, i: number) => be16(b, i) * 65536 + be16(b, i + 2)
+export const le16 = (b: Uint8Array, i: number) => (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8)
+export const le32 = (b: Uint8Array, i: number) => le16(b, i) + le16(b, i + 2) * 65536
 const le24 = (b: Uint8Array, i: number) => le16(b, i) | ((b[i + 2] ?? 0) << 16)
 const startsWith = (b: Uint8Array, sig: number[], at = 0) => sig.every((v, i) => b[at + i] === v)
 
