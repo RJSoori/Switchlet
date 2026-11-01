@@ -1,7 +1,8 @@
 import { PDFDocument, PDFName, PDFString } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { NoticeError } from './errors'
-import { compress, merge, pageLayout, reorder, scrubPdf, split, type InFile } from './pdf'
+import type { InFile } from '../core/ops'
+import { compress, merge, pageLayout, reorder, scrubPdf, split } from './pdf'
 
 /** A PDF whose page i is (100 + i) points wide, so page order can be read back from widths. */
 async function makePdf(pages: number, edit?: (doc: PDFDocument) => void, compact = false): Promise<Uint8Array<ArrayBuffer>> {

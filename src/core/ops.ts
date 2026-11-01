@@ -30,6 +30,7 @@ export type Step =
 
 export type OpId = Step['op']
 
+export interface InFile { name: string; kind: Kind; bytes: Uint8Array<ArrayBuffer> }
 export interface OutFile { name: string; data: ArrayBuffer; type: string }
 export interface Finding { label: string; detail?: string }
 export interface MetadataReport {

@@ -1,6 +1,6 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phase 1 built and verified on branch `phase-1` (2026-11-01), waiting for review before merging to `main`. Phase 2 not started.
+**Status:** Phase 1 merged to `main`. Phase 2 in progress on `phase-2` (2026-11-01). Done: op registry v2, PDF tools + tests, pdf.js asset plugin. Written but NOT yet tested: `src/ops/sheet.ts`, `src/ops/docs.ts`. Next: their tests (docs in jsdom), then worker API v2 + UI (`App.tsx` and `worker.ts` still target the old registry, so the app does not build yet), then Phase 2 verification.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 
 ## Context

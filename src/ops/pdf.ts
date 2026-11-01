@@ -5,13 +5,12 @@
 import {
   EncryptedPDFError, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, type PDFObject,
 } from '@cantoo/pdf-lib'
-import type { Kind } from '../core/detect'
-import { parseRanges, stem, type Finding, type OutFile, type PageSize, type Strength, type TaskResult } from '../core/ops'
+import { LIMITS } from '../core/detect'
+import { parseRanges, stem, type Finding, type InFile, type OutFile, type PageSize, type Strength, type TaskResult } from '../core/ops'
 import { decodeImage, drawPixels, encodeJpeg } from './decode'
 import { DecodeError, NoticeError } from './errors'
 
 export type Progress = (fraction: number, stage: string) => void
-export interface InFile { name: string; kind: Kind; bytes: Uint8Array<ArrayBuffer> }
 
 const PDF_TYPE = 'application/pdf'
 
@@ -162,14 +161,20 @@ const STRENGTH: Record<Strength, { quality: number; maxSide: number }> = {
 
 const name = (n: string) => PDFName.of(n)
 
-/** Baseline 8-bit RGB JPEG images we can safely re-encode. CMYK, grey, masks and inverted images are left alone. */
+/** An image stream stored as a plain JPEG (DCTDecode is its only filter). */
+function isJpegImage(o: PDFObject): o is PDFRawStream {
+  if (!(o instanceof PDFRawStream) || o.dict.get(name('Subtype')) !== name('Image')) return false
+  const filter = o.dict.get(name('Filter'))
+  return filter === name('DCTDecode') || (filter instanceof PDFArray && filter.size() === 1 && filter.get(0) === name('DCTDecode'))
+}
+
+/** Baseline 8-bit RGB JPEG images we can safely re-encode. CMYK, grey, masks, inverted and oversized images are left alone. */
 function isPlainRgbJpeg(doc: PDFDocument, o: PDFObject): o is PDFRawStream {
-  if (!(o instanceof PDFRawStream)) return false
+  if (!isJpegImage(o)) return false
   const d = o.dict
-  if (d.get(name('Subtype')) !== name('Image') || d.has(name('Decode')) || d.has(name('ImageMask'))) return false
-  const filter = d.get(name('Filter'))
-  const onlyDct = filter === name('DCTDecode') || (filter instanceof PDFArray && filter.size() === 1 && filter.get(0) === name('DCTDecode'))
-  if (!onlyDct || d.get(name('BitsPerComponent'))?.toString() !== '8') return false
+  if (d.has(name('Decode')) || d.has(name('ImageMask')) || d.get(name('BitsPerComponent'))?.toString() !== '8') return false
+  const w = Number(d.get(name('Width'))?.toString()), h = Number(d.get(name('Height'))?.toString())
+  if (!(w > 0 && h > 0) || w * h > LIMITS.pixels) return false
   const cs = d.lookup(name('ColorSpace'))
   if (cs === name('DeviceRGB')) return true
   if (cs instanceof PDFArray && cs.get(0) === name('ICCBased')) {
@@ -245,14 +250,51 @@ export async function scrubPdf(f: InFile): Promise<TaskResult> {
   add('Last changed', doc.getModificationDate())
 
   const removed = new Set<string>()
+  const kept: string[] = []
   const ctx = doc.context
   if (ctx.trailerInfo.Info) { ctx.trailerInfo.Info = undefined; removed.add('Document details (title, author, dates, software)') }
   if (ctx.trailerInfo.ID) { ctx.trailerInfo.ID = undefined; removed.add('Document ID, which can link copies of a file') }
-  for (const [, o] of ctx.enumerateIndirectObjects()) {
+
+  // Hidden keys, including inside direct (nested) dictionaries and arrays. References are walked as their own objects.
+  const strip = (o: PDFObject, depth = 0): void => {
+    if (depth > 32) return
     const dict = o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : null
-    for (const [key, label] of HIDDEN_KEYS) if (dict?.has(name(key))) { dict.delete(name(key)); removed.add(label) }
+    if (dict) {
+      for (const [key, label] of HIDDEN_KEYS) if (dict.has(name(key))) { dict.delete(name(key)); removed.add(label) }
+      for (const [, v] of dict.entries()) if (!(v instanceof PDFRef)) strip(v, depth + 1)
+    } else if (o instanceof PDFArray) {
+      for (const v of o.asArray()) if (!(v instanceof PDFRef)) strip(v, depth + 1)
+    }
   }
+  let attachments = 0
+  for (const [, o] of ctx.enumerateIndirectObjects()) {
+    strip(o)
+    if (o instanceof PDFDict && o.get(name('Type')) === name('Filespec') && o.has(name('EF'))) attachments++
+  }
+
+  // Photos placed in a PDF often keep their own EXIF (GPS, camera). Strip them with the same tested JPEG walker.
+  const { describeMetadata, stripJpeg } = await import('./scrub')
+  let photo = 0, unreadable = 0
+  for (const [ref, o] of ctx.enumerateIndirectObjects()) {
+    if (!isJpegImage(o)) continue
+    photo++
+    try {
+      const inner = describeMetadata(o.contents).found
+      const clean = stripJpeg(o.contents)
+      if (!clean.removed.length) continue
+      for (const x of inner) found.push({ label: `Photo ${photo}: ${x.label}`, detail: x.detail })
+      for (const c of clean.removed) removed.add(`${c} inside embedded photos`)
+      const dict = o.dict.clone(ctx)
+      dict.set(name('Length'), PDFNumber.of(clean.data.length))
+      ctx.assign(ref, PDFRawStream.of(dict, clean.data))
+    } catch {
+      unreadable++
+    }
+  }
+  if (unreadable) kept.push(`${unreadable} embedded ${unreadable === 1 ? 'image' : 'images'} Switchlet couldn’t read, left as they were`)
+  if (attachments) kept.push(`${attachments} attached ${attachments === 1 ? 'file' : 'files'}. Remove ${attachments === 1 ? 'it' : 'them'} in a PDF editor if ${attachments === 1 ? 'it shouldn’t' : 'they shouldn’t'} be shared`)
+
   if (dropUnreachable(doc) > 0) removed.add('Leftovers from earlier edits')
   const data = await save(doc)
-  return { files: [pdfFile(`${stem(f.name)}-clean.pdf`, data)], report: { found, removed: [...removed], kept: [] } }
+  return { files: [pdfFile(`${stem(f.name)}-clean.pdf`, data)], report: { found, removed: [...removed], kept } }
 }
