@@ -2,17 +2,13 @@
 // Input is hostile: every length is bounds-checked, and malformed structure throws DecodeError.
 import ExifReader from 'exifreader'
 import { ascii, be16, be32, le32, type Kind } from '../core/detect'
+import { DecodeError } from './errors'
 
-export interface Finding { label: string; detail?: string }
-export interface MetadataReport {
-  found: Finding[] // human-readable details we could read (GPS, camera…)
-  removed: string[] // categories of data that were removed
-  kept: string[] // what was deliberately kept, and why it's harmless
-}
+export { DecodeError }
 
-export class DecodeError extends Error {
-  override name = 'DecodeError'
-}
+import type { Finding, MetadataReport } from '../core/ops'
+
+export type { Finding, MetadataReport }
 
 const corrupt = (what: string) => new DecodeError(`This ${what} file is damaged or incomplete.`)
 

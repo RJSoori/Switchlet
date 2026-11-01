@@ -2,7 +2,7 @@
 // ponytail: the ESM bundle embeds its WASM as base64 (~30% larger download than a separate .wasm);
 // switch to libheif.js + libheif.wasm if HEIC decode size starts to matter.
 import factory from 'libheif-js/libheif-wasm/libheif-bundle.mjs'
-import { DecodeError } from './scrub'
+import { DecodeError } from './errors'
 
 let lib: ReturnType<typeof factory> | undefined
 
