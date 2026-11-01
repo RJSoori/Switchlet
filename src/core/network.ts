@@ -24,7 +24,13 @@ export function startNetworkLog() {
   if (started) return
   started = true
   new PerformanceObserver((list) => recordRequests(toNetRecord(list.getEntries()), 'page')).observe({ type: 'resource', buffered: true })
-  document.addEventListener('securitypolicyviolation', () => { log = { ...log, blocked: log.blocked + 1 }; emit() })
+  // Count blocked loads only. Inline-handler reports ("inline"/"eval") aren't requests: Chrome raises them while
+  // DOMPurify parses hostile HTML in an inert document to sanitize it, before the handler is removed.
+  document.addEventListener('securitypolicyviolation', (e) => {
+    if (e.blockedURI === 'inline' || e.blockedURI === 'eval') return
+    log = { ...log, blocked: log.blocked + 1 }
+    emit()
+  })
 }
 
 export function isOwnOrigin(url: string) {

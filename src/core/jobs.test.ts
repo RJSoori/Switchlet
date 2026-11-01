@@ -7,6 +7,8 @@ describe('friendlyError', () => {
     expect(friendlyError(damaged)).toMatchObject({ kind: 'damaged', message: expect.stringMatching(/damaged.*fresh copy/) })
     expect(friendlyError(new RangeError('Array buffer allocation failed')).kind).toBe('memory')
     expect(friendlyError(new Error('RuntimeError: unreachable')).kind).toBe('crash')
+    expect(friendlyError(Object.assign(new Error('“a.pdf” is password-protected…'), { name: 'NoticeError' }))).toMatchObject({ kind: 'notice', message: '“a.pdf” is password-protected…' })
+    expect(friendlyError(new TypeError('Failed to fetch dynamically imported module: /assets/pdf-x.js'))).toMatchObject({ kind: 'notice', message: expect.stringMatching(/updated.*Reload/) })
     const cancelled = new JobError('cancelled', 'Cancelled')
     expect(friendlyError(cancelled)).toBe(cancelled)
   })

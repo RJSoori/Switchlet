@@ -73,6 +73,18 @@ describe('remove hidden data', () => {
   })
 })
 
+describe('honest reporting', () => {
+  it('does not claim leftovers when only the removed XMP was orphaned', async () => {
+    const bytes = await makePdf(1, (doc) => {
+      const xmp = doc.context.stream('<x:xmpmeta/>', { Type: 'Metadata', Subtype: 'XML' })
+      doc.catalog.set(PDFName.of('Metadata'), doc.context.register(xmp))
+    })
+    const r = await scrubPdf(file(bytes))
+    expect(r.report!.removed).toContain('XMP metadata')
+    expect(r.report!.removed).not.toContain('Leftovers from earlier edits')
+  })
+})
+
 describe('protected and odd files', () => {
   it('explains password-protected PDFs instead of failing obscurely', async () => {
     const locked = await makePdf(1, (doc) => doc.encrypt({ userPassword: 'pw', ownerPassword: 'owner' }))

@@ -12,8 +12,8 @@ function Row({ item, index, onMove, reorderable, total }: { item: Item; index: n
       <div className="flex min-w-0 items-start gap-3">
         {reorderable && (
           <span className="flex shrink-0 flex-col text-sm">
-            <button type="button" onClick={() => onMove(index, index - 1)} disabled={index === 0} aria-label={`Move ${item.file.name} up`} className="rounded px-1.5 leading-tight hover:bg-rule disabled:opacity-30">↑</button>
-            <button type="button" onClick={() => onMove(index, index + 1)} disabled={index === total - 1} aria-label={`Move ${item.file.name} down`} className="rounded px-1.5 leading-tight hover:bg-rule disabled:opacity-30">↓</button>
+            <button type="button" onClick={() => onMove(index, index - 1)} disabled={index === 0} aria-label={`Move ${item.file.name} up`} className="min-h-7 min-w-7 rounded px-1.5 leading-tight hover:bg-rule disabled:opacity-30">↑</button>
+            <button type="button" onClick={() => onMove(index, index + 1)} disabled={index === total - 1} aria-label={`Move ${item.file.name} down`} className="min-h-7 min-w-7 rounded px-1.5 leading-tight hover:bg-rule disabled:opacity-30">↓</button>
           </span>
         )}
         <div className="min-w-0">

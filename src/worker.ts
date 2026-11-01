@@ -60,6 +60,7 @@ const api = {
 
 export type WorkerApi = typeof api
 expose(api)
+self.postMessage({ type: 'switchlet:ready' }) // lets the page tell "code failed to load" apart from "this file crashed it"
 
 // Report this worker's own network requests (code and codec downloads) to the page's privacy panel.
 new PerformanceObserver((list) => {

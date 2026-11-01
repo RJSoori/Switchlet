@@ -20,7 +20,7 @@ Phases, decisions and status: [PLAN.md](PLAN.md). Threat model: SECURITY.md.
 - `npm audit` every phase.
 
 ## Architecture rules
-- Heavy work runs in the single Comlink worker (`src/worker.ts` lazy-imports `src/ops/<domain>`). Only Markdown↔HTML runs on the main thread (it needs a DOM), capped at 5 MB.
+- Heavy work runs in the single Comlink worker (`src/worker.ts` lazy-imports `src/ops/<domain>`). Main-thread exceptions (they need a DOM): Markdown↔HTML (capped at 5 MB) and pdf.js page drawing; pdf.js still parses PDFs in its own worker. See SECURITY.md.
 - Every conversion is a recipe (`Step[]`); a single job is a 1-step recipe.
 - Cancel = `worker.terminate()`.
 - Lazy-load heavy WASM. First load ≤ 120 KB gzipped JS+CSS.

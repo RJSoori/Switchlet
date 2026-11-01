@@ -32,6 +32,8 @@ export interface Item extends Job {
 const IDLE: Job = { status: 'idle', progress: 0, stage: '' }
 const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, Markdown, HTML, CSV, JSON and Excel files'
 const unsupported = (d: Detected) => `${d.kind === 'unknown' ? 'This kind of file' : `${d.label}s`} can’t be converted yet. Switchlet works with ${SUPPORTED}.`
+/** Tasks whose output is the same kind of file, where "X kB to Y kB, 40% smaller" means something. */
+const SAME_KIND = new Set<OpId>(['pdf.compress', 'pdf.scrub', 'pdf.pages'])
 const VERB: Partial<Record<OpId, string>> = { 'image.scrub': 'Clean', 'pdf.scrub': 'Clean', 'pdf.split': 'Split', 'pdf.compress': 'Shrink' }
 
 const toOutput = (r: TaskResult): Output => ({
@@ -302,7 +304,13 @@ export function App() {
                       {step.op === 'pdf.pages' && (
                         <PageSorter file={single.file} order={step.settings.order} onChange={(order) => setStep({ ...step, settings: { order } })} />
                       )}
-                      <JobResult job={single} inputSize={single.file.size} zipName={`${stem(single.file.name)}.zip`} onCancel={cancelSingle} onRetry={retrySingle} />
+                      <JobResult
+                        job={single}
+                        inputSize={SAME_KIND.has(step.op) ? single.file.size : undefined}
+                        zipName={`${stem(single.file.name)}.zip`}
+                        onCancel={cancelSingle}
+                        onRetry={retrySingle}
+                      />
                     </>
                   )}
                 </div>

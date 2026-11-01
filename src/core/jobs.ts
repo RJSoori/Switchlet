@@ -15,11 +15,15 @@ export class JobError extends Error {
   }
 }
 
+/** A tab opened before a new version was deployed asks for code files that no longer exist. */
+const UPDATED = 'Switchlet was updated since you opened this page. Reload the page, then try again.'
+
 /** Turn anything a worker threw into a message that says what happened and what to do next. */
 export function friendlyError(e: unknown): JobError {
   if (e instanceof JobError) return e
   const err = e instanceof Error ? e : new Error(String(e))
   if (err.name === 'NoticeError') return new JobError('notice', err.message)
+  if (/dynamically imported module|importing a module script failed/i.test(err.message)) return new JobError('notice', UPDATED)
   if (err.name === 'DecodeError') return new JobError('damaged', `${err.message} Try opening it in another app and saving a fresh copy.`)
   if (err.name === 'RangeError' || /memory|allocat|oom/i.test(err.message)) {
     return new JobError('memory', 'Your browser ran out of memory for this file. Try a smaller output size, or close other tabs and try again.')
@@ -27,15 +31,17 @@ export function friendlyError(e: unknown): JobError {
   return new JobError('crash', 'The converter stopped unexpectedly on this file. It may be damaged or unusual. Try another copy of it.')
 }
 
-interface Slot { worker: Worker; api: Remote<WorkerApi> }
+interface Slot { worker: Worker; api: Remote<WorkerApi>; ready: boolean }
 const idle: Slot[] = []
 
 function spawn(): Slot {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module', name: 'switchlet-converter' })
+  const slot: Slot = { worker, api: wrap<WorkerApi>(worker), ready: false }
   worker.addEventListener('message', (e: MessageEvent) => {
+    if (e.data?.type === 'switchlet:ready') slot.ready = true
     if (e.data?.type === 'switchlet:network' && Array.isArray(e.data.entries)) recordRequests(e.data.entries, 'converter')
   })
-  return { worker, api: wrap<WorkerApi>(worker) }
+  return slot
 }
 
 async function withWorker<T>(signal: AbortSignal | undefined, fn: (api: Remote<WorkerApi>) => Promise<T>): Promise<T> {
@@ -43,7 +49,11 @@ async function withWorker<T>(signal: AbortSignal | undefined, fn: (api: Remote<W
   const slot = idle.pop() ?? spawn()
   let onAbort = () => {}
   const stopped = new Promise<never>((_, reject) => {
-    slot.worker.onerror = (ev) => { ev.preventDefault(); reject(new JobError('crash', 'The converter stopped unexpectedly. Try again, or try another copy of the file.')) }
+    slot.worker.onerror = (ev) => {
+      ev.preventDefault()
+      // Failing before the worker said it was ready means its code couldn't load, not that the file broke it.
+      reject(slot.ready ? new JobError('crash', 'The converter stopped unexpectedly. Try again, or try another copy of the file.') : new JobError('notice', UPDATED))
+    }
     onAbort = () => reject(new JobError('cancelled', 'Cancelled'))
     signal?.addEventListener('abort', onAbort, { once: true })
   })

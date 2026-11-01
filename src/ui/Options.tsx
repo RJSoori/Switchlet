@@ -170,7 +170,6 @@ const STRENGTH_HINT: Record<Strength, string> = {
 const SHEET_LABEL: Record<SheetFormat, string> = { csv: 'CSV', json: 'JSON', xlsx: 'Excel' }
 
 export function TaskPicker({ ops, step, kind, onChange }: { ops: OpId[]; step: Step | null; kind: Kind; onChange: (s: Step) => void }) {
-  if (ops.length < 2 && step) return null
   const hint = step
     ? step.op === 'doc.convert'
       ? kind === 'html' ? 'Turns this HTML page into Markdown.' : 'Turns this into an HTML page. Scripts and other unsafe HTML are removed.'

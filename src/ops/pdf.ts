@@ -252,6 +252,8 @@ export async function scrubPdf(f: InFile): Promise<TaskResult> {
   const removed = new Set<string>()
   const kept: string[] = []
   const ctx = doc.context
+  // Count real leftovers first: the stripping below orphans objects of its own (like the XMP stream).
+  if (dropUnreachable(doc) > 0) removed.add('Leftovers from earlier edits')
   if (ctx.trailerInfo.Info) { ctx.trailerInfo.Info = undefined; removed.add('Document details (title, author, dates, software)') }
   if (ctx.trailerInfo.ID) { ctx.trailerInfo.ID = undefined; removed.add('Document ID, which can link copies of a file') }
 
@@ -294,7 +296,6 @@ export async function scrubPdf(f: InFile): Promise<TaskResult> {
   if (unreadable) kept.push(`${unreadable} embedded ${unreadable === 1 ? 'image' : 'images'} Switchlet couldn’t read, left as they were`)
   if (attachments) kept.push(`${attachments} attached ${attachments === 1 ? 'file' : 'files'}. Remove ${attachments === 1 ? 'it' : 'them'} in a PDF editor if ${attachments === 1 ? 'it shouldn’t' : 'they shouldn’t'} be shared`)
 
-  if (dropUnreachable(doc) > 0) removed.add('Leftovers from earlier edits')
-  const data = await save(doc)
+  const data = await save(doc) // also drops whatever the stripping orphaned
   return { files: [pdfFile(`${stem(f.name)}-clean.pdf`, data)], report: { found, removed: [...removed], kept } }
 }

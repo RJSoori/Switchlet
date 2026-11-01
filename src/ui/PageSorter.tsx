@@ -71,9 +71,9 @@ export function PageSorter({ file, order, onChange }: { file: File; order: numbe
             <div className="mt-2 flex items-center justify-between gap-1 text-sm">
               <span className="tabular-nums">Page {p + 1}</span>
               <span className="flex gap-0.5">
-                <button type="button" onClick={() => move(pos, pos - 1)} disabled={pos === 0} aria-label={`Move page ${p + 1} earlier`} className="rounded px-1.5 hover:bg-rule disabled:opacity-30">←</button>
-                <button type="button" onClick={() => move(pos, pos + 1)} disabled={pos === pages.length - 1} aria-label={`Move page ${p + 1} later`} className="rounded px-1.5 hover:bg-rule disabled:opacity-30">→</button>
-                <button type="button" onClick={() => onChange(pages.filter((_, i) => i !== pos))} disabled={pages.length === 1} aria-label={`Remove page ${p + 1}`} className="rounded px-1.5 text-danger hover:bg-rule disabled:opacity-30">×</button>
+                <button type="button" onClick={() => move(pos, pos - 1)} disabled={pos === 0} aria-label={`Move page ${p + 1} earlier`} className="min-h-7 min-w-7 rounded px-1.5 hover:bg-rule disabled:opacity-30">←</button>
+                <button type="button" onClick={() => move(pos, pos + 1)} disabled={pos === pages.length - 1} aria-label={`Move page ${p + 1} later`} className="min-h-7 min-w-7 rounded px-1.5 hover:bg-rule disabled:opacity-30">→</button>
+                <button type="button" onClick={() => onChange(pages.filter((_, i) => i !== pos))} disabled={pages.length === 1} aria-label={`Remove page ${p + 1}`} className="min-h-7 min-w-7 rounded px-1.5 text-danger hover:bg-rule disabled:opacity-30">×</button>
               </span>
             </div>
           </li>

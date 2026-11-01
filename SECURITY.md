@@ -25,6 +25,14 @@ Switchlet converts files entirely inside the browser tab. This document says wha
 
 No other exceptions. Any future one must be unavoidable and documented here.
 
+## Expected console messages
+- **"Executing inline event handler violates … script-src-attr"** when converting Markdown or HTML that contains `onerror=`-style attributes. DOMPurify parses the untrusted HTML in an inert document in order to sanitize it, and Chrome checks event-handler attributes against the CSP at parse time. Nothing runs (the document is inert, the CSP blocks it anyway, and DOMPurify removes the attribute). The privacy panel counts only blocked *loads*, so these reports don't change it.
+
+## Main-thread exceptions
+All decoding of untrusted files runs in Web Workers, with two narrow exceptions that need a DOM:
+- **Markdown ↔ HTML:** DOMPurify and turndown, on inputs capped at 5 MB.
+- **PDF page rendering** (thumbnails, PDF → images): pdf.js parses the PDF in its own worker; only drawing happens on the main thread, sliced so the page stays responsive. PDF scripting (pdf.js's quickjs sandbox) isn't shipped, and XFA forms are disabled.
+
 ## Known limits (honest list)
 - **Navigation is not covered by CSP.** Malicious code could still leak data by navigating the page to another site. Defence is supply-chain hygiene: few, pinned, audited dependencies and no runtime third-party code.
 - **WebRTC is not covered by `connect-src`** in all browsers. Planned for Phase 5: disable `RTCPeerConnection` at startup.
