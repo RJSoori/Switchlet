@@ -79,9 +79,38 @@ describe('JPEG scrub', () => {
     expect([...data.subarray(20, 22)]).toEqual([0xff, 0xe1])
   })
 
-  it('rejects truncated segments with DecodeError', () => {
+  it('rejects truncated segments and a missing end-of-image marker with DecodeError', () => {
     const b = jpeg()
     expect(() => scrubImage(b.subarray(0, 30), 'jpeg')).toThrow(DecodeError)
+    const eoi = indexOf(b, [0xff, 0xd9])
+    expect(() => scrubImage(b.subarray(0, eoi), 'jpeg')).toThrow(DecodeError)
+  })
+
+  it('removes metadata hidden between progressive scans', () => {
+    const b = new Uint8Array([
+      0xff, 0xd8,
+      0xff, 0xc2, ...u16(11), 8, ...u16(8), ...u16(8), 1, 1, 0x11, 0,
+      0xff, 0xda, ...u16(8), 1, 1, 0, 0, 0x3f, 0, 0x11, 0x22,
+      ...exifApp1(), // APP1 with GPS after the first scan
+      0xff, 0xfe, ...u16(8), ...str('secret'),
+      0xff, 0xc4, ...u16(4), 0, 0, // tables between scans are kept
+      0xff, 0xda, ...u16(8), 1, 1, 0, 0, 0x3f, 0, 0x33, 0x44,
+      0xff, 0xd9,
+    ])
+    const { data, report } = scrubImage(b, 'jpeg')
+    expect(report.removed).toEqual(expect.arrayContaining(['EXIF data', 'Comments']))
+    expect(indexOf(data, str('secret'))).toBe(-1)
+    expect(indexOf(data, str('Exif'))).toBe(-1)
+    expect(indexOf(data, [0xff, 0xc4, 0, 4, 0, 0])).toBeGreaterThan(0)
+    expect(indexOf(data, [0x33, 0x44, 0xff, 0xd9])).toBeGreaterThan(0)
+  })
+
+  it('cuts a JFIF thumbnail but keeps the JFIF header', () => {
+    const thumb = [0xff, 0xe0, ...u16(16 + 6), ...str('JFIF'), 0, 1, 1, 0, 0, 72, 0, 72, 1, 2, 9, 9, 9, 9, 9, 9]
+    const b = new Uint8Array([0xff, 0xd8, ...thumb, ...jpeg().subarray(20)])
+    const { data, report } = scrubImage(b, 'jpeg')
+    expect(report.removed).toContain('Embedded thumbnail')
+    expect([...data.subarray(2, 20)]).toEqual([0xff, 0xe0, 0, 16, ...str('JFIF'), 0, 1, 1, 0, 0, 72, 0, 72, 0, 0])
   })
 })
 
@@ -132,6 +161,7 @@ describe('WebP scrub', () => {
       ...riffChunk('VP8L', [0x2f, 0, 0, 0, 0]),
       ...riffChunk('EXIF', [9, 9, 9]),
       ...riffChunk('XMP ', [8, 8, 8, 8, 8]),
+      ...riffChunk('ZZZZ', [7]), // unknown chunk: removed by the allow-list
     ]
     return new Uint8Array([...str('RIFF'), ...le32(body.length), ...body])
   }
@@ -142,7 +172,8 @@ describe('WebP scrub', () => {
     expect(data[20]).toBe(0x30) // ICC + alpha flags remain
     expect(indexOf(data, str('EXIF'))).toBe(-1)
     expect(indexOf(data, str('XMP '))).toBe(-1)
-    expect(report.removed).toEqual(['EXIF data', 'XMP metadata'])
+    expect(indexOf(data, str('ZZZZ'))).toBe(-1)
+    expect(report.removed).toEqual(['EXIF data', 'XMP metadata', 'Other metadata'])
     expect(report.kept).toEqual(['Colour profile'])
   })
 })

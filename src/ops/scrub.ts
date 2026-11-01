@@ -79,37 +79,44 @@ export function orientationApp1(orientation: number): Uint8Array {
   ])
 }
 
+/** Segments needed to decode the image: frames (SOFn), Huffman/arithmetic/quantisation tables, restart interval, DNL, EXP. */
+const isImageSegment = (m: number) => (m >= 0xc0 && m <= 0xcf && m !== 0xc8) || m === 0xdb || m === 0xdd || m === 0xdc || m === 0xdf
+
+/** Allow-list: image segments, JFIF (rebuilt without thumbnail), ICC profile and Adobe colour transform. Everything else is removed. */
 function jpegCategory(marker: number, seg: Uint8Array): string | null {
   const id = ascii(seg, 4, 29)
-  if (marker === 0xe0) return id.startsWith('JFXX') ? 'Embedded thumbnail' : null // keep JFIF
-  if (marker === 0xee) return null // Adobe: colour transform, needed to decode correctly
-  if (marker === 0xe2) return id.startsWith('ICC_PROFILE') ? null : id.startsWith('MPF') ? 'Extra embedded images (depth map, HDR)' : 'Other metadata'
+  if (isImageSegment(marker) || marker === 0xee) return null
+  if (marker === 0xe0) return id.startsWith('JFIF\0') ? null : 'Embedded thumbnail'
+  if (marker === 0xe2) return id.startsWith('ICC_PROFILE\0') ? null : id.startsWith('MPF') ? 'Extra embedded images (depth map, HDR)' : 'Other metadata'
   if (marker === 0xe1) return id.startsWith('Exif') ? 'EXIF data' : id.startsWith('http://ns.adobe.com/') ? 'XMP metadata' : 'Other metadata'
   if (marker === 0xed) return 'IPTC / Photoshop data'
   if (marker === 0xeb) return 'Content credentials (C2PA)'
   if (marker === 0xfe) return 'Comments'
-  if (marker >= 0xe3 && marker <= 0xef) return 'Other metadata'
-  return null // frame, table and restart segments: image data, always kept
+  return 'Other metadata'
 }
 
-const isStandalone = (m: number) => m === 0x01 || (m >= 0xd0 && m <= 0xd8)
+/** JFIF APP0 reduced to its 14-byte header with the thumbnail size zeroed. */
+function jfifWithoutThumbnail(seg: Uint8Array): { seg: Uint8Array; hadThumbnail: boolean } {
+  if (seg.length < 18) return { seg, hadThumbnail: false }
+  const out = seg.slice(0, 18)
+  out[2] = 0x00; out[3] = 0x10 // length 16
+  const hadThumbnail = seg.length > 18 || out[16] !== 0 || out[17] !== 0
+  out[16] = 0; out[17] = 0
+  return { seg: out, hadThumbnail }
+}
 
-/** Offset just past EOI, walking scans and their entropy-coded data. Truncated files keep everything. */
-function jpegEnd(b: Uint8Array, i: number): number {
-  while (i + 4 <= b.length) {
-    i += 2 + be16(b, i + 2) // skip this segment (SOS header, or tables between progressive scans)
-    while (i + 1 < b.length) {
-      const next = b[i + 1]!
-      if (b[i] === 0xff && next !== 0x00 && next !== 0xff && !(next >= 0xd0 && next <= 0xd7)) break
-      i++
-    }
-    if (i + 1 >= b.length) return b.length
-    if (b[i + 1] === 0xd9) return i + 2
+const isRestart = (m: number) => m >= 0xd0 && m <= 0xd7
+
+/** Index of the next marker after entropy-coded scan data (skipping stuffed 0xFF00 bytes and restart markers). */
+function skipEntropy(b: Uint8Array, i: number): number {
+  for (; i + 1 < b.length; i++) {
+    if (b[i] === 0xff && b[i + 1] !== 0x00 && !isRestart(b[i + 1]!)) return i
   }
-  return b.length
+  throw corrupt('JPEG') // no end-of-image marker: incomplete file
 }
 
 export function stripJpeg(b: Uint8Array, orientation?: number): { data: Uint8Array; removed: string[]; kept: string[] } {
+  if (b[0] !== 0xff || b[1] !== 0xd8) throw corrupt('JPEG')
   const out: Uint8Array[] = [b.subarray(0, 2)]
   const removed = new Set<string>()
   const kept: string[] = []
@@ -117,26 +124,34 @@ export function stripJpeg(b: Uint8Array, orientation?: number): { data: Uint8Arr
   while (true) {
     if (i + 2 > b.length || b[i] !== 0xff) throw corrupt('JPEG')
     const m = b[i + 1]!
-    if (m === 0xff) { i++; continue }
-    if (m === 0xd9) { out.push(b.subarray(i, i + 2)); break }
-    if (isStandalone(m)) { out.push(b.subarray(i, i + 2)); i += 2; continue }
-    if (i + 4 > b.length) throw corrupt('JPEG')
-    if (m === 0xda) {
-      const end = jpegEnd(b, i)
-      out.push(b.subarray(i, end))
-      if (b.length - end > 32) removed.add('Extra embedded images (depth map, HDR)')
+    if (m === 0xff) { i++; continue } // fill byte
+    if (m === 0xd9) {
+      out.push(b.subarray(i, i + 2))
+      if (b.length - (i + 2) > 32) removed.add('Extra embedded images (depth map, HDR)')
       break
     }
+    if (isRestart(m) || m === 0x01) { out.push(b.subarray(i, i + 2)); i += 2; continue }
+    if (i + 4 > b.length) throw corrupt('JPEG')
     const len = be16(b, i + 2)
     if (len < 2 || i + 2 + len > b.length) throw corrupt('JPEG')
     const seg = b.subarray(i, i + 2 + len)
-    const category = jpegCategory(m, seg)
-    if (category) removed.add(category)
-    else {
-      out.push(seg)
-      if (m === 0xe2 && ascii(seg, 4, 11) === 'ICC_PROFILE' && !kept.includes('Colour profile')) kept.push('Colour profile')
-    }
     i += 2 + len
+    if (m === 0xda) { // start of scan: keep its header and the compressed data that follows
+      const end = skipEntropy(b, i)
+      out.push(seg, b.subarray(i, end))
+      i = end
+      continue
+    }
+    const category = jpegCategory(m, seg)
+    if (category) { removed.add(category); continue }
+    if (m === 0xe0) {
+      const jfif = jfifWithoutThumbnail(seg)
+      if (jfif.hadThumbnail) removed.add('Embedded thumbnail')
+      out.push(jfif.seg)
+      continue
+    }
+    if (m === 0xe2 && !kept.includes('Colour profile')) kept.push('Colour profile')
+    out.push(seg)
   }
   if (orientation && orientation !== 1) {
     out.splice(out[1]?.[1] === 0xe0 ? 2 : 1, 0, orientationApp1(orientation)) // after JFIF APP0 if present
@@ -177,6 +192,8 @@ export function stripPng(b: Uint8Array): { data: Uint8Array; removed: string[]; 
 
 /* ---------- WebP ---------- */
 
+const WEBP_KEEP = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP'])
+
 export function stripWebp(b: Uint8Array): { data: Uint8Array; removed: string[]; kept: string[] } {
   if (b.length < 12) throw corrupt('WebP')
   const out: Uint8Array[] = [b.slice(0, 12)]
@@ -189,8 +206,7 @@ export function stripWebp(b: Uint8Array): { data: Uint8Array; removed: string[];
     const size = le32(b, i + 4)
     const end = i + 8 + size + (size & 1)
     if (i + 8 + size > b.length) throw corrupt('WebP')
-    if (type === 'EXIF') removed.add('EXIF data')
-    else if (type === 'XMP ') removed.add('XMP metadata')
+    if (!WEBP_KEEP.has(type)) removed.add(type === 'EXIF' ? 'EXIF data' : type === 'XMP ' ? 'XMP metadata' : 'Other metadata')
     else {
       const chunk = b.slice(i, Math.min(end, b.length))
       if (type === 'VP8X' && size >= 1) chunk[8] = chunk[8]! & ~0x0c // clear the EXIF and XMP flags
