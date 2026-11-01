@@ -21,7 +21,7 @@ const isolation = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 }
 
-const wasmPackages = ['@jsquash/jpeg', '@jsquash/webp', '@jsquash/avif', '@jsquash/png', '@jsquash/oxipng', 'libheif-js']
+const wasmPackages = ['@jsquash/jpeg', '@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng', 'libheif-js']
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
