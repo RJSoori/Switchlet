@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultOp, fitWithin, imageOutputName, makeStep, opsFor, parseRanges, stem } from './ops'
+import { defaultOp, fitWithin, formatTime, gifTimestamps, imageOutputName, makeStep, mediaSupport, opsFor, parseRanges, stem } from './ops'
 
 describe('fitWithin', () => {
   it('scales the longest side down, keeping the aspect ratio', () => {
@@ -43,6 +43,35 @@ describe('op registry', () => {
     expect(imageOutputName('my.photo.jpeg', 'jpeg', { op: 'image.scrub' })).toBe('my.photo-clean.jpg')
     expect(stem('.hidden')).toBe('.hidden')
     expect(stem('report.final.pdf')).toBe('report.final')
+  })
+})
+
+describe('audio and video', () => {
+  it('offers video tasks for videos and audio conversion for sound files', () => {
+    expect(opsFor(['mp4'])).toEqual(['video.convert', 'video.trim', 'video.gif', 'media.audio'])
+    expect(opsFor(['mp4', 'webm'])).toEqual(['video.convert', 'media.audio'])
+    expect(opsFor(['mp3', 'wav'])).toEqual(['media.audio'])
+    expect(defaultOp(['mov'])).toBe('video.convert')
+    expect(defaultOp(['flac'])).toBe('media.audio')
+    expect(makeStep('video.convert', 'webm')).toMatchObject({ settings: { container: 'webm', quality: 'keep' } })
+    expect(makeStep('video.convert', 'mkv')).toMatchObject({ settings: { container: 'mp4' } })
+  })
+
+  it('works out which formats this browser can create', () => {
+    const chromeLike = mediaSupport({ video: ['avc', 'vp9'], audio: ['aac', 'opus'] })
+    expect(chromeLike).toEqual({ video: { mp4: true, mov: true, webm: true }, audio: { m4a: true, ogg: true, wav: true } })
+    const noAac = mediaSupport({ video: ['vp8'], audio: ['opus'] })
+    expect(noAac.video).toEqual({ mp4: false, mov: false, webm: true })
+    expect(noAac.audio.m4a).toBe(false)
+    expect(mediaSupport({ video: [], audio: [] }).audio.wav).toBe(true)
+  })
+
+  it('formats times and plans GIF frames', () => {
+    expect(formatTime(0)).toBe('0:00')
+    expect(formatTime(65)).toBe('1:05')
+    expect(formatTime(65.5)).toBe('1:05.5')
+    expect(gifTimestamps(1, 2, 4)).toEqual([1, 1.25, 1.5, 1.75])
+    expect(gifTimestamps(0, 120, 10)).toHaveLength(300) // capped at 30 seconds
   })
 })
 

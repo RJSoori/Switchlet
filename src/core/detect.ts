@@ -3,7 +3,7 @@
 export type Kind =
   | 'jpeg' | 'png' | 'gif' | 'webp' | 'avif' | 'heic'
   | 'pdf'
-  | 'mp4' | 'm4a' | 'mov' | 'webm' | 'mkv' | 'wav' | 'mp3'
+  | 'mp4' | 'm4a' | 'mov' | 'webm' | 'mkv' | 'wav' | 'mp3' | 'ogg' | 'flac'
   | 'xlsx' | 'csv' | 'json'
   | 'markdown' | 'html' | 'text'
   | 'svg' | 'zip' | 'unknown'
@@ -31,6 +31,7 @@ const META: Record<Kind, [label: string, group: Group]> = {
   pdf: ['PDF document', 'pdf'],
   mp4: ['MP4 video', 'media'], m4a: ['M4A audio', 'media'], mov: ['MOV video', 'media'],
   webm: ['WebM video', 'media'], mkv: ['MKV video', 'media'], wav: ['WAV audio', 'media'], mp3: ['MP3 audio', 'media'],
+  ogg: ['OGG audio', 'media'], flac: ['FLAC audio', 'media'],
   xlsx: ['Excel workbook', 'sheet'], csv: ['CSV table', 'sheet'], json: ['JSON data', 'sheet'],
   markdown: ['Markdown text', 'doc'], html: ['HTML page', 'doc'], text: ['Text file', 'doc'],
   svg: ['SVG image', 'none'], zip: ['ZIP archive', 'none'], unknown: ['Unknown file', 'none'],
@@ -71,6 +72,8 @@ function binaryKind(b: Uint8Array): Kind | null {
   if (ascii(b, 0, Math.min(b.length, 1024)).includes('%PDF-')) return 'pdf'
   if (startsWith(b, [0x1a, 0x45, 0xdf, 0xa3])) return ascii(b, 0, 64).includes('webm') ? 'webm' : 'mkv'
   if (startsWith(b, [0x50, 0x4b, 0x03, 0x04])) return ascii(b, 0, Math.min(b.length, 8192)).includes('xl/') ? 'xlsx' : 'zip'
+  if (ascii(b, 0, 4) === 'OggS') return 'ogg'
+  if (ascii(b, 0, 4) === 'fLaC') return 'flac'
   if (ascii(b, 0, 3) === 'ID3' || (b[0] === 0xff && ((b[1] ?? 0) & 0xe6) === 0xe2)) return 'mp3'
   return isoBrandKind(b)
 }

@@ -4,7 +4,7 @@ import { proxy, wrap, type Remote } from 'comlink'
 import type { Task, WorkerApi } from '../worker'
 import type { Kind } from './detect'
 import { recordRequests } from './network'
-import type { Step, TaskResult } from './ops'
+import type { MediaCaps, Step, TaskResult } from './ops'
 
 export type JobErrorKind = 'cancelled' | 'damaged' | 'memory' | 'crash' | 'notice'
 
@@ -24,6 +24,10 @@ export function friendlyError(e: unknown): JobError {
   const err = e instanceof Error ? e : new Error(String(e))
   if (err.name === 'NoticeError') return new JobError('notice', err.message)
   if (/dynamically imported module|importing a module script failed/i.test(err.message)) return new JobError('notice', UPDATED)
+  // WebCodecs encoders differ per browser and per setting (an AAC encoder may refuse some bitrates or sample rates).
+  if (/encoder configuration|not supported in this environment/i.test(err.message)) {
+    return new JobError('notice', 'This browser can’t create that format with these settings. Try another format; for audio, WAV always works.')
+  }
   if (err.name === 'DecodeError') return new JobError('damaged', `${err.message} Try opening it in another app and saving a fresh copy.`)
   if (err.name === 'RangeError' || /memory|allocat|oom/i.test(err.message)) {
     return new JobError('memory', 'Your browser ran out of memory for this file. Try a smaller output size, or close other tabs and try again.')
@@ -92,6 +96,13 @@ export async function runStep(
     throw friendlyError(e)
   }
   return runTask({ ...step, files, kinds }, opts)
+}
+
+let caps: Promise<MediaCaps> | null = null
+/** Which audio and video codecs this browser can encode (asked once, in a worker). */
+export function mediaCapabilities(): Promise<MediaCaps> {
+  caps ??= withWorker(undefined, (api) => api.capabilities()).catch((e) => { caps = null; throw e })
+  return caps
 }
 
 export async function zipBlobs(entries: { name: string; blob: Blob }[], signal?: AbortSignal): Promise<Blob> {

@@ -9,6 +9,7 @@ describe('friendlyError', () => {
     expect(friendlyError(new Error('RuntimeError: unreachable')).kind).toBe('crash')
     expect(friendlyError(Object.assign(new Error('“a.pdf” is password-protected…'), { name: 'NoticeError' }))).toMatchObject({ kind: 'notice', message: '“a.pdf” is password-protected…' })
     expect(friendlyError(new TypeError('Failed to fetch dynamically imported module: /assets/pdf-x.js'))).toMatchObject({ kind: 'notice', message: expect.stringMatching(/updated.*Reload/) })
+    expect(friendlyError(new Error('This specific encoder configuration (mp4a.40.2, 64000 bps) is not supported in this environment.'))).toMatchObject({ kind: 'notice', message: expect.stringMatching(/WAV always works/) })
     const cancelled = new JobError('cancelled', 'Cancelled')
     expect(friendlyError(cancelled)).toBe(cancelled)
   })

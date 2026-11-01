@@ -54,6 +54,8 @@ describe('detect: binary formats by magic bytes', () => {
     expect(detect(bytes([0x1a, 0x45, 0xdf, 0xa3], 'B\x82\x88matroska'), 'x').kind).toBe('mkv')
     expect(detect(bytes('RIFF', u32(0), 'WAVE'), 'x').kind).toBe('wav')
     expect(detect(bytes('ID3', [4, 0]), 'x').kind).toBe('mp3')
+    expect(detect(bytes('OggS', [0, 2]), 'x').kind).toBe('ogg')
+    expect(detect(bytes('fLaC', [0, 0, 0, 34]), 'x').kind).toBe('flac')
     expect(detect(bytes([0xff, 0xfb, 0x90, 0x00]), 'x').kind).toBe('mp3')
     expect(detect(bytes([0x50, 0x4b, 3, 4], new Array(26).fill(0), 'xl/workbook.xml'), 'a.xlsx').kind).toBe('xlsx')
     expect(detect(bytes([0x50, 0x4b, 3, 4], new Array(26).fill(0), 'word/document.xml'), 'a.docx').kind).toBe('zip')

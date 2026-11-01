@@ -33,17 +33,37 @@ async function dispatch(task: Task, inputs: InFile[], progress: Progress): Promi
     case 'pdf.scrub': return (await import('./ops/pdf')).scrubPdf(one)
     case 'sheet.convert': return (await import('./ops/sheet')).convertSheet(one, task.settings.to, task.settings.sheet)
     case 'pdf.toImages': case 'doc.convert': throw new Error(`${task.op} runs on the main thread`)
+    case 'video.convert': case 'video.trim': case 'video.gif': case 'media.audio': throw new Error(`${task.op} streams its input`)
   }
 }
 
+/** Audio and video read straight from the File (in chunks, on demand) instead of loading it whole. */
+async function media(task: Task, progress: Progress): Promise<TaskResult | null> {
+  const file = task.files[0]!
+  switch (task.op) {
+    case 'video.convert': return (await import('./ops/media')).convertVideo(file, task.settings, progress)
+    case 'video.trim': return (await import('./ops/media')).trimVideo(file, task.kinds[0]!, task.settings, progress)
+    case 'video.gif': return (await import('./ops/media')).makeGif(file, task.settings, progress)
+    case 'media.audio': return (await import('./ops/media')).extractAudio(file, task.settings.format, progress)
+    default: return null
+  }
+}
+
+const transferResult = (r: TaskResult) => transfer(r, [...r.files.map((f) => f.data), ...(r.preview ? [r.preview] : [])])
+
 const api = {
+  async capabilities() {
+    return (await import('./ops/media')).capabilities()
+  },
+
   async run(task: Task, progress: Progress = () => {}): Promise<TaskResult> {
+    const streamed = await media(task, progress)
+    if (streamed) return transferResult(streamed)
     const inputs: InFile[] = await Promise.all(
       task.files.map(async (f, i) => ({ name: f.name, kind: task.kinds[i]!, bytes: new Uint8Array(await f.arrayBuffer()) })),
     )
     try {
-      const r = await dispatch(task, inputs, progress)
-      return transfer(r, [...r.files.map((f) => f.data), ...(r.preview ? [r.preview] : [])])
+      return transferResult(await dispatch(task, inputs, progress))
     } finally {
       for (const f of inputs) f.bytes.fill(0) // best-effort wipe of this worker's copies of the files
     }

@@ -5,6 +5,19 @@ export type ImageFormat = 'jpeg' | 'png' | 'webp' | 'avif'
 export type PageSize = 'image' | 'a4' | 'letter'
 export type SheetFormat = 'csv' | 'json' | 'xlsx'
 export type Strength = 'light' | 'balanced' | 'strong'
+export type VideoContainer = 'mp4' | 'webm' | 'mov'
+export type AudioFormat = 'm4a' | 'ogg' | 'wav'
+/** 'keep' copies the streams untouched when the container allows it (fast, no quality loss). */
+export type MediaQuality = 'keep' | 'high' | 'medium' | 'low'
+
+export interface VideoSettings {
+  container: VideoContainer
+  /** Largest output height in pixels; null keeps the original size. */
+  maxHeight: number | null
+  quality: MediaQuality
+}
+/** A stretch of a recording, in seconds. A null end means "to the end". */
+export interface Clip { start: number; end: number | null }
 
 export interface ImageSettings {
   format: ImageFormat
@@ -27,6 +40,10 @@ export type Step =
   | { op: 'pdf.scrub' }
   | { op: 'doc.convert' }
   | { op: 'sheet.convert'; settings: { to: SheetFormat; sheet: string | null } }
+  | { op: 'video.convert'; settings: VideoSettings }
+  | { op: 'video.trim'; settings: Clip }
+  | { op: 'video.gif'; settings: Clip & { fps: number; width: number } }
+  | { op: 'media.audio'; settings: { format: AudioFormat } }
 
 export type OpId = Step['op']
 
@@ -65,11 +82,15 @@ interface OpInfo {
   maxFiles?: number
   /** Runs on the main thread. doc.convert needs a DOM; pdf.toImages uses pdf.js's display layer (parsing stays in pdf.js's worker). */
   main?: true
-  /** Converts on its own as soon as a single file is dropped. Other tasks wait for the user to pick them. */
+  /** Preselected when a file is dropped (and, unless `manual`, run straight away). */
   auto?: true
+  /** Heavy work (audio and video): runs only when the user presses the button, never on every settings change. */
+  manual?: true
 }
 
 const IMAGES: Kind[] = ['jpeg', 'png', 'gif', 'webp', 'avif', 'heic']
+export const VIDEO_KINDS: Kind[] = ['mp4', 'mov', 'webm', 'mkv']
+export const AUDIO_KINDS: Kind[] = ['mp3', 'wav', 'm4a', 'ogg', 'flac']
 
 export const OPS: Record<OpId, OpInfo> = {
   'image.convert': { label: 'Convert or shrink', accepts: IMAGES, auto: true },
@@ -83,6 +104,45 @@ export const OPS: Record<OpId, OpInfo> = {
   'pdf.scrub': { label: 'Remove hidden data', accepts: ['pdf'] },
   'doc.convert': { label: 'Convert', accepts: ['markdown', 'text', 'html'], main: true, auto: true },
   'sheet.convert': { label: 'Convert', accepts: ['csv', 'json', 'xlsx'], auto: true },
+  'video.convert': { label: 'Convert or shrink', accepts: VIDEO_KINDS, auto: true, manual: true },
+  'video.trim': { label: 'Trim', accepts: VIDEO_KINDS, maxFiles: 1, manual: true },
+  'video.gif': { label: 'Make a GIF', accepts: VIDEO_KINDS, maxFiles: 1, manual: true },
+  'media.audio': { label: 'Save the audio', accepts: [...VIDEO_KINDS, ...AUDIO_KINDS], auto: true, manual: true },
+}
+
+/* ---------- audio and video ---------- */
+
+export const VIDEO_LABEL: Record<VideoContainer, string> = { mp4: 'MP4', webm: 'WebM', mov: 'MOV' }
+export const AUDIO_LABEL: Record<AudioFormat, string> = { m4a: 'M4A (AAC)', ogg: 'Ogg (Opus)', wav: 'WAV' }
+export const MAX_GIF_SECONDS = 30
+
+/** Codecs this browser can encode, as reported by WebCodecs in the worker. */
+export interface MediaCaps { video: string[]; audio: string[] }
+
+/** Which output formats this browser can create. MP4/MOV take H.264, HEVC, VP9 or AV1; WebM takes VP8, VP9 or AV1. */
+export function mediaSupport(caps: MediaCaps): { video: Record<VideoContainer, boolean>; audio: Record<AudioFormat, boolean> } {
+  const any = (list: string[], wanted: string[]) => wanted.some((c) => list.includes(c))
+  const isobmff = any(caps.video, ['avc', 'hevc', 'vp9', 'av1'])
+  return {
+    video: { mp4: isobmff, mov: isobmff, webm: any(caps.video, ['vp9', 'vp8', 'av1']) },
+    audio: { m4a: caps.audio.includes('aac'), ogg: caps.audio.includes('opus'), wav: true },
+  }
+}
+
+/** "65.5" → "1:05.5"; whole seconds drop the decimal ("1:05"). */
+export function formatTime(seconds: number): string {
+  const s = Math.max(0, seconds)
+  const m = Math.floor(s / 60)
+  const rest = s - m * 60
+  const secs = Number.isInteger(Math.round(rest * 10) / 10) ? String(Math.round(rest)).padStart(2, '0') : rest.toFixed(1).padStart(4, '0')
+  return `${m}:${secs}`
+}
+
+/** Frame times for a GIF: every 1/fps seconds from start, capped at MAX_GIF_SECONDS. */
+export function gifTimestamps(start: number, end: number, fps: number): number[] {
+  const stop = Math.min(end, start + MAX_GIF_SECONDS)
+  const count = Math.max(1, Math.floor((stop - start) * fps))
+  return Array.from({ length: count }, (_, i) => start + i / fps)
 }
 
 /** Tasks that fit every one of these files (a mixed drop of photos and PDFs has none). */
@@ -121,6 +181,10 @@ export function makeStep(op: OpId, kind: Kind): Step {
     case 'pdf.toImages': return { op, settings: { format: 'jpeg', dpi: 150 } }
     case 'pdf.compress': return { op, settings: { strength: 'balanced' } }
     case 'sheet.convert': return { op, settings: { to: kind === 'xlsx' ? 'csv' : 'xlsx', sheet: null } }
+    case 'video.convert': return { op, settings: { container: kind === 'webm' ? 'webm' : kind === 'mov' ? 'mov' : 'mp4', maxHeight: null, quality: 'keep' } }
+    case 'video.trim': return { op, settings: { start: 0, end: null } }
+    case 'video.gif': return { op, settings: { start: 0, end: null, fps: 10, width: 480 } }
+    case 'media.audio': return { op, settings: { format: 'm4a' } }
     case 'image.scrub': case 'pdf.merge': case 'pdf.scrub': case 'doc.convert': return { op }
   }
 }
