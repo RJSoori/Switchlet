@@ -47,3 +47,9 @@ const api = {
 
 export type WorkerApi = typeof api
 expose(api)
+
+// Report this worker's own network requests (codec downloads) to the page's privacy panel.
+new PerformanceObserver((list) => {
+  const entries = (list.getEntries() as PerformanceResourceTiming[]).map((e) => ({ url: e.name, type: e.initiatorType, bytes: e.transferSize }))
+  self.postMessage({ type: 'switchlet:network', entries })
+}).observe({ type: 'resource', buffered: true })

@@ -2,6 +2,7 @@
 // mid-flight, and it frees the whole WASM heap). Any worker that failed is terminated, never reused.
 import { proxy, wrap, type Remote } from 'comlink'
 import type { Task, TaskResult, WorkerApi } from '../worker'
+import { recordRequests } from './network'
 
 export type JobErrorKind = 'cancelled' | 'damaged' | 'memory' | 'crash'
 
@@ -28,6 +29,9 @@ const idle: Slot[] = []
 
 function spawn(): Slot {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module', name: 'switchlet-converter' })
+  worker.addEventListener('message', (e: MessageEvent) => {
+    if (e.data?.type === 'switchlet:network' && Array.isArray(e.data.entries)) recordRequests(e.data.entries, 'converter')
+  })
   return { worker, api: wrap<WorkerApi>(worker) }
 }
 

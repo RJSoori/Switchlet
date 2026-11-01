@@ -40,7 +40,7 @@ export function describeMetadata(input: ArrayBuffer | Uint8Array): { found: Find
   const text = (...keys: string[]) => {
     for (const k of keys) {
       const v = exif[k]?.description
-      if (v !== undefined && String(v).trim()) return String(v).trim()
+      if (v !== undefined && String(v).trim()) return String(v).trim().slice(0, 120)
     }
     return undefined
   }

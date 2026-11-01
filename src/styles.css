@@ -50,6 +50,16 @@
   ::selection { background: var(--color-jade); color: var(--color-on-jade); }
 }
 
+/* The one orchestrated moment: on load the switch settles open. */
+.lever {
+  transform-origin: 6px 27px;
+  animation: lever-open 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 400ms both;
+}
+@keyframes lever-open {
+  from { transform: rotate(23deg); }
+  to { transform: rotate(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
