@@ -8,7 +8,7 @@ import { download, pasteShortcut, percent } from './ui/hooks'
 import { Options } from './ui/Options'
 import { JobResult } from './ui/Outputs'
 import { PageSorter } from './ui/PageSorter'
-import { Proof, useRequestsElsewhere } from './ui/Proof'
+import { Proof, useProofHeadline } from './ui/Proof'
 import { MediaStage, RunMedia } from './ui/MediaStage'
 import { ImageResult } from './ui/Result'
 
@@ -62,7 +62,7 @@ export function App() {
   const batchCtrl = useRef<AbortController | null>(null)
   const singleCtrl = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null)
-  const elsewhere = useRequestsElsewhere()
+  const proofHeadline = useProofHeadline()
 
   const patch = useCallback((id: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...p } : it))), [])
 
@@ -271,11 +271,11 @@ export function App() {
     <div className="min-h-dvh">
       <header className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-8">
         <button type="button" onClick={clear} className="flex items-center gap-2.5 text-lg font-semibold tracking-tight" aria-label="Switchlet, start over">
-          <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true"><rect width="32" height="32" rx="7" className="fill-jade" /><path d="M4 21h7M21 21h7M11 21l9-9" className="stroke-on-jade" strokeWidth="2.6" strokeLinecap="round" fill="none" /><circle cx="11" cy="21" r="2.2" className="fill-on-jade" /><circle cx="21" cy="21" r="2.2" className="stroke-on-jade" strokeWidth="2" fill="none" /></svg>
+          <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true"><rect width="32" height="32" rx="7" className="fill-jade" /><path d="M4 21h7M23.4 21H28M11 21l9-9" className="stroke-on-jade" strokeWidth="2.6" strokeLinecap="round" fill="none" /><circle cx="11" cy="21" r="2.2" className="fill-on-jade" /><circle cx="21" cy="21" r="2.4" className="stroke-on-jade" strokeWidth="1.4" fill="none" /></svg>
           Switchlet
         </button>
         <a href="#proof" className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
-          <span className="tabular-nums">{elsewhere}</span> requests to other servers
+          <span className="tabular-nums">{proofHeadline}</span>
         </a>
       </header>
 

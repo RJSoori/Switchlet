@@ -14,3 +14,7 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The service worker must always be re-checked, so a new deploy reaches everyone.
+/sw.js
+  Cache-Control: no-cache

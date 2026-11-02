@@ -3,12 +3,14 @@
 import { formatBytes } from '../core/detect'
 import { isOwnOrigin, useNetworkLog } from '../core/network'
 
-export function useRequestsElsewhere() {
-  return useNetworkLog().entries.filter((e) => !isOwnOrigin(e.url)).length
+/** The short version for the page header: measured upload bytes once the service worker is watching. */
+export function useProofHeadline(): string {
+  const { entries, uploaded, measuring } = useNetworkLog()
+  return measuring ? `${formatBytes(uploaded)} uploaded` : `${entries.filter((e) => !isOwnOrigin(e.url)).length} requests to other servers`
 }
 
 export function Proof() {
-  const { entries, blocked } = useNetworkLog()
+  const { entries, blocked, uploaded, measuring } = useNetworkLog()
   const elsewhere = entries.filter((e) => !isOwnOrigin(e.url))
   const own = entries.filter((e) => isOwnOrigin(e.url))
 
@@ -33,10 +35,18 @@ export function Proof() {
         <p className="max-w-[40ch] text-lg leading-relaxed">
           Your files are opened and converted here, in this browser tab. They don’t leave this device.
         </p>
-        <div className="sm:text-right">
-          <p className="font-mono text-7xl leading-none tabular-nums" aria-describedby="elsewhere-label">{elsewhere.length}</p>
-          <p id="elsewhere-label" className="mt-3 text-muted">requests to other servers since you opened this page</p>
-        </div>
+        {measuring ? (
+          <div className="sm:text-right">
+            <p className="font-mono text-7xl leading-none tabular-nums" aria-describedby="uploaded-label">{uploaded ? formatBytes(uploaded) : '0'}</p>
+            <p id="uploaded-label" className="mt-3 text-muted">bytes uploaded since you opened this page</p>
+            <p className="mt-1 text-sm text-muted"><span className="tabular-nums">{elsewhere.length}</span> requests to other servers</p>
+          </div>
+        ) : (
+          <div className="sm:text-right">
+            <p className="font-mono text-7xl leading-none tabular-nums" aria-describedby="elsewhere-label">{elsewhere.length}</p>
+            <p id="elsewhere-label" className="mt-3 text-muted">requests to other servers since you opened this page</p>
+          </div>
+        )}
       </div>
 
       <details className="mt-8 border-t border-rule pt-5">
@@ -44,8 +54,14 @@ export function Proof() {
         <div className="mt-4 max-w-[68ch] space-y-3 leading-relaxed text-muted">
           <p>Switchlet is a set of files your browser downloads, like any web page. Conversions run inside your browser, on this device’s processor.</p>
           <p>The page’s security policy only allows connections to Switchlet’s own address, and that address only hands out files. There’s no upload service, so there is nowhere for a file to go.</p>
+          {measuring && (
+            <p>
+              Uploads are measured by Switchlet’s service worker, a small script that sees every request this page makes.
+              It counts the size of anything that could carry data out (any request that isn’t a plain download).
+            </p>
+          )}
           <p>
-            The number above comes from your browser’s own record of every request made by this page and its converter.
+            The request count comes from your browser’s own record of every request made by this page and its converter.
             Requests blocked by the security policy: <span className="text-ink tabular-nums">{blocked}</span>.
           </p>
           <p>To check it yourself, open your browser’s developer tools, choose Network, and convert a file.</p>

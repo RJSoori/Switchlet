@@ -49,12 +49,41 @@ function pdfjsAssets(): Plugin {
   }
 }
 
+// The service worker is built from src/sw.ts to a stable /sw.js. After every other file is emitted, its
+// placeholders get the full precache list (everything the app can ever load, so it works offline) and a
+// version derived from those (content-hashed) names.
+function serviceWorker(): Plugin {
+  return {
+    name: 'switchlet:service-worker',
+    generateBundle: {
+      order: 'post',
+      handler(_, bundle) {
+        const sw = bundle['sw.js']
+        if (!sw || sw.type !== 'chunk') return
+        const publicFiles = readdirSync('public', { recursive: true, withFileTypes: true })
+          .filter((d) => d.isFile() && d.name !== '_headers')
+          .map((d) => `${d.parentPath.replace(/\\/g, '/').replace(/^public\/?/, '')}/${d.name}`.replace(/^\//, ''))
+        const files = ['/', ...[...Object.keys(bundle), ...publicFiles].filter((f) => f !== 'sw.js' && !f.endsWith('.map')).map((f) => `/${f}`)].sort()
+        let hash = 2166136261 // FNV-1a over the file list
+        for (const ch of files.join('\n')) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0
+        sw.code = sw.code.replace('__PRECACHE__', JSON.stringify(files)).replace('__VERSION__', JSON.stringify(hash.toString(36)))
+      },
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), pdfjsAssets()],
+  plugins: [react(), tailwindcss(), pdfjsAssets(), serviceWorker()],
   server: { headers: isolation },
   preview: { headers: previewHeaders },
   optimizeDeps: { exclude: wasmPackages },
   worker: { format: 'es' },
-  build: { assetsInlineLimit: 0 },
+  build: {
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      input: { index: 'index.html', sw: 'src/sw.ts' },
+      output: { entryFileNames: (chunk) => (chunk.name === 'sw' ? 'sw.js' : 'assets/[name]-[hash].js') },
+    },
+  },
   test: { include: ['src/**/*.test.ts'] },
 })
