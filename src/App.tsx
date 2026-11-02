@@ -10,7 +10,7 @@ import { JobResult } from './ui/Outputs'
 import { PageSorter } from './ui/PageSorter'
 import { Proof, useProofHeadline } from './ui/Proof'
 import { decodeRecipe, describeStep, type Recipe } from './core/recipes'
-import { ImportRecipe, LibraryPanel, SaveRecipe, useLibrary } from './ui/Library'
+import { Dialog, ImportRecipe, LibraryPanel, SaveRecipe, useLibrary } from './ui/Library'
 import { MediaStage, RunMedia } from './ui/MediaStage'
 import { Palette, ShortcutHelp, mod, type Command } from './ui/Palette'
 import { ImageResult } from './ui/Result'
@@ -73,6 +73,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [importing, setImporting] = useState<Pick<Recipe, 'name' | 'steps'> | null>(null)
+  const [shared, setShared] = useState<File[] | null>(null)
 
   const patch = useCallback((id: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...p } : it))), [])
 
@@ -291,6 +292,7 @@ export function App() {
   }, [])
 
   // Files shared from another app (the Android share sheet), parked by the service worker until now, then deleted.
+  // Any website can also POST files to the share target, so nothing is opened until the person confirms.
   useEffect(() => {
     if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return
     history.replaceState(null, '', '/')
@@ -303,13 +305,13 @@ export function App() {
           if (res) files.push(new File([await res.blob()], decodeURIComponent(res.headers.get('x-file-name') ?? 'shared-file'), { type: res.headers.get('content-type') ?? '' }))
         }
         await caches.delete('switchlet-shared')
-        void addFiles(files)
+        if (files.length) setShared(files)
       } catch {
         await caches.delete('switchlet-shared').catch(() => {})
         setNotice('The shared files couldn’t be opened. Try sharing them again.')
       }
     })()
-  }, [addFiles])
+  }, [])
 
   const pick = () => picker.current?.click()
   const kind = usable[0]?.detected.kind ?? 'unknown'
@@ -556,6 +558,19 @@ export function App() {
       <div aria-live="polite" className="sr-only">{announcement}</div>
       {paletteOpen && <Palette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
+      {shared && (
+        <Dialog title={shared.length === 1 ? 'Open the shared file?' : `Open ${shared.length} shared files?`} onClose={() => setShared(null)}>
+          <ul className="max-h-48 overflow-auto text-muted">
+            {shared.slice(0, 10).map((f, i) => <li key={i} className="truncate">{f.name}, {formatBytes(f.size)}</li>)}
+          </ul>
+          {shared.length > 10 && <p className="text-sm text-muted">And {shared.length - 10} more.</p>}
+          <p className="mt-3 text-sm text-muted">Open them only if you just shared them with Switchlet. Websites can send files here too.</p>
+          <div className="mt-6 flex gap-2">
+            <button type="button" onClick={() => { const files = shared; setShared(null); void addFiles(files) }} className="rounded-lg bg-jade px-4 py-2 font-semibold text-on-jade">Open</button>
+            <button type="button" onClick={() => setShared(null)} className="rounded-lg border border-line px-4 py-2">Discard</button>
+          </div>
+        </Dialog>
+      )}
       {importing && (
         <ImportRecipe
           recipe={importing}
