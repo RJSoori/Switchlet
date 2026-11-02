@@ -5,7 +5,7 @@ Switchlet converts files entirely inside the browser tab. This document says wha
 ## What we promise
 - **Your files never leave your device.** No upload endpoint exists; the site is static files on Cloudflare Pages.
 - **No third parties.** No analytics, ads, fonts, CDNs or scripts from anyone else. After the page loads, the only requests are for Switchlet's own code (lazily loaded converters).
-- **Nothing is kept unless you ask.** Files live in memory only while a job runs. (Recipes and job history, from Phase 4, store settings and file names locally, never file contents.)
+- **Nothing is kept unless you ask.** Files live in memory only while a job runs. Recipes and history store settings and file names in this browser only, never file contents.
 
 ## Threats and mitigations
 | Threat | Mitigation |
@@ -33,6 +33,13 @@ No other exceptions. Any future one must be unavoidable and documented here.
 - Mediabunny copies an input's metadata tags by default; Switchlet always writes none (and no creation time). Phone videos keep location and device details in those tags; the report lists what was dropped.
 - Two places outside the tags are handled too: per-track titles (which Mediabunny would copy, with no option to stop it) are blanked on the input, and FLAC or Vorbis audio is always re-encoded, because its codec setup data carries its own tags and cover art.
 - What a browser can decode or encode varies. When a track can't be converted, Switchlet stops and says why rather than handing back a "video" that lost its picture.
+
+## Service worker, recipes and shared files
+- **Offline copy.** `src/sw.ts` (short on purpose, no Workbox) caches only the build-time list of Switchlet's own files at install and serves them cache-first; pages are network-first with the cached `/` as the offline fallback, headers included, so CSP, COOP and COEP still apply offline. It never stores a response it fetched at runtime, so nothing can be planted in the app cache. `/sw.js` is served `no-cache`, so a new deploy reaches people on their next visit.
+- **Upload meter.** Every non-GET request from Switchlet's pages and workers passes through the service worker, which counts its body bytes and reports them to the privacy panel. POST navigations aren't counted: Switchlet's pages can't submit forms (`form-action 'none'`), so one can only come from another site, and counting it would let any site inflate the meter.
+- **Share target.** On Android, files shared to Switchlet arrive as a POST that the service worker parks in a separate cache (`switchlet-shared`), never served to any page or request. The page reads them and deletes the cache at once. Any website can post files to the same address, so the page asks "Open the shared files?" with their names and sizes before anything is decoded or a pinned recipe runs. After that, the usual hostile-file rules apply.
+- **Recipe links** live in the URL fragment (`#recipe=…`), which browsers never send to a server. A link longer than 2000 characters is refused. Decoding rebuilds each step from an allow-list of tasks and values and drops everything else, including file-specific values such as page orders and sheet names. Names lose control, bidi and invisible characters and are capped at 80 characters. Adding a recipe needs confirmation, and adding one never runs it.
+- **Storage.** IndexedDB holds recipes (a name and settings) and history (up to 3 file names, a count, the task and the date, last 100 entries, cleared with one click). localStorage holds the id of the pinned recipe. None of it holds file contents.
 
 ## Main-thread exceptions
 All decoding of untrusted files runs in Web Workers, with two narrow exceptions that need a DOM:

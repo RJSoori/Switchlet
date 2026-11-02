@@ -1,9 +1,10 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phases 1 and 2 merged to `main`. Phase 3 (audio/video) built and verified on branch `phase-3` (2026-11-02), waiting for review before merging. Phase 4 not started.
+**Status:** Phases 1–3 merged to `main`. Phase 4 (recipes, PWA, share target, command palette) built and verified on branch `phase-4` (2026-11-02), waiting for review before merging. Phase 5 not started.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
 Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
+Phase 4 deviations: a recipe holds one step (links with more are refused as "needs a newer version"). History records downloads (up to 3 file names plus a count, the task and the date), not failed jobs or sizes. Shared files wait behind an "Open?" prompt, because any website can post files to the share target. The precache is 5.8 MB brotli and is skipped when Data Saver is on. A pinned recipe runs only on files it fits; otherwise a notice says so.
 
 ## Context
 This is a new build in an empty folder, `R:\Projects\Switchlet`. The app is a file converter where nothing is ever uploaded: every conversion runs in the browser using WASM, Web Workers and the browser's built-in codecs. Privacy is the product, and the app has to show it, not just claim it. It should be fast, need no sign-up, be strictly secured, and keep people coming back with recipes, offline use and a share target.
