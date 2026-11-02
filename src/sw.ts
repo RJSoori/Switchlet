@@ -28,7 +28,12 @@ sw.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   const ownOrigin = url.origin === sw.location.origin
   if (request.method === 'POST' && ownOrigin && url.pathname === '/share-target') return event.respondWith(receiveShare(request))
-  if (request.method !== 'GET' && request.method !== 'HEAD') return event.respondWith(meterUpload(request))
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    // Switchlet's pages can't submit forms (form-action 'none'), so a POST navigation was started by another
+    // site. It isn't this page uploading anything, and counting it would let any site inflate the meter.
+    if (request.mode === 'navigate') return
+    return event.respondWith(meterUpload(request))
+  }
   if (!ownOrigin) return // the security policy blocks these before they get here
   event.respondWith(request.mode === 'navigate' ? networkFirst(request) : cacheFirst(request))
 })

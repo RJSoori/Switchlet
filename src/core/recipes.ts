@@ -74,7 +74,7 @@ export function validateStep(raw: unknown): Step | null {
 /** Names are shown as text only; still, keep them short and free of control characters. */
 export function cleanName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
-  const name = raw.replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g, '').trim().slice(0, MAX_NAME_LENGTH)
+  const name = raw.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200c\u200e\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, '').trim().slice(0, MAX_NAME_LENGTH)
   return name || null
 }
 

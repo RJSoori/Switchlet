@@ -50,6 +50,8 @@ describe('recipe links', () => {
 
   it('cleans names: no control or bidi-override characters, at most 80 characters', () => {
     expect(cleanName('  Holiday‮ gpj.exe \u0007 ')).toBe('Holiday gpj.exe')
+    expect(cleanName('Pay‏​⁦me⁩﻿')).toBe('Payme') // marks, zero-width, isolates, BOM
+    expect(cleanName('Family 👨‍👩‍👧')).toBe('Family 👨‍👩‍👧') // ZWJ kept for emoji
     expect(cleanName('x'.repeat(200))).toHaveLength(80)
     expect(cleanName(42)).toBeNull()
   })
