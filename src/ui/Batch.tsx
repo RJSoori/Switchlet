@@ -3,7 +3,7 @@ import { formatBytes } from '../core/detect'
 import { percent, useObjectUrl } from './hooks'
 import { sizeChange } from './Outputs'
 
-function Row({ item, index, onMove, reorderable, total }: { item: Item; index: number; total: number; reorderable: boolean; onMove: (from: number, to: number) => void }) {
+function Row({ item, index, onMove, reorderable, total, onDownload }: { item: Item; index: number; total: number; reorderable: boolean; onMove: (from: number, to: number) => void; onDownload?: (item: Item) => void }) {
   const out = item.output
   const only = out?.files.length === 1 ? out.files[0] : undefined
   const url = useObjectUrl(only?.blob)
@@ -36,7 +36,7 @@ function Row({ item, index, onMove, reorderable, total }: { item: Item; index: n
           <p>
             <span className="tabular-nums">{formatBytes(only.blob.size)}</span>
             <span className="text-muted">, {sizeChange(item.file.size, only.blob.size).toLowerCase()} </span>
-            <a href={url} download={only.name} className="ml-2 text-jade underline underline-offset-4">Download</a>
+            <a href={url} download={only.name} onClick={() => onDownload?.(item)} className="ml-2 text-jade underline underline-offset-4">Download</a>
           </p>
         )}
         {out && out.files.length > 1 && <p className="text-muted">{out.files.length} files, in the ZIP below</p>}
@@ -45,10 +45,10 @@ function Row({ item, index, onMove, reorderable, total }: { item: Item; index: n
   )
 }
 
-export function BatchList({ items, reorderable, onMove }: { items: Item[]; reorderable: boolean; onMove: (from: number, to: number) => void }) {
+export function BatchList({ items, reorderable, onMove, onDownload }: { items: Item[]; reorderable: boolean; onMove: (from: number, to: number) => void; onDownload?: (item: Item) => void }) {
   return (
     <ul className="divide-y divide-rule border-y border-rule" aria-label="Files">
-      {items.map((it, i) => <Row key={it.id} item={it} index={i} total={items.length} reorderable={reorderable} onMove={onMove} />)}
+      {items.map((it, i) => <Row key={it.id} item={it} index={i} total={items.length} reorderable={reorderable} onMove={onMove} onDownload={onDownload} />)}
     </ul>
   )
 }

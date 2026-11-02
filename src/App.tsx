@@ -9,7 +9,10 @@ import { Options } from './ui/Options'
 import { JobResult } from './ui/Outputs'
 import { PageSorter } from './ui/PageSorter'
 import { Proof, useProofHeadline } from './ui/Proof'
+import { decodeRecipe, describeStep, type Recipe } from './core/recipes'
+import { ImportRecipe, LibraryPanel, SaveRecipe, useLibrary } from './ui/Library'
 import { MediaStage, RunMedia } from './ui/MediaStage'
+import { Palette, ShortcutHelp, mod, type Command } from './ui/Palette'
 import { ImageResult } from './ui/Result'
 
 export type Output = Omit<TaskResult, 'files'> & { files: { blob: Blob; name: string }[] }
@@ -63,6 +66,13 @@ export function App() {
   const singleCtrl = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const proofHeadline = useProofHeadline()
+  const library = useLibrary()
+  const pinnedRef = useRef<Recipe | null>(null)
+  pinnedRef.current = library.pinned
+  const [autoRun, setAutoRun] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [importing, setImporting] = useState<Pick<Recipe, 'name' | 'steps'> | null>(null)
 
   const patch = useCallback((id: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...p } : it))), [])
 
@@ -93,12 +103,17 @@ export function App() {
     if (current !== session.current) return // a newer drop replaced this one
     const kinds = next.filter((it) => !it.problem).map((it) => it.detected.kind)
     const op = defaultOp(kinds)
+    // A recipe that's switched on is used whenever it fits the dropped files, and runs straight away.
+    const recipe = pinnedRef.current
+    const recipeStep = recipe && opsFor(kinds).includes(recipe.steps[0]!.op) ? recipe.steps[0]! : null
     setItems(next)
-    setStep(op ? makeStep(op, kinds[0]!) : null)
+    setStep(recipeStep ?? (op ? makeStep(op, kinds[0]!) : null))
+    if (recipeStep) setAutoRun(true)
     const mixed = kinds.length > 1 && !opsFor(kinds).length
     setNotice(
       mixed ? 'These files are different kinds. Switchlet works on one kind at a time: drop just the photos, just the PDFs, or just the documents.'
       : files.length > accepted.length ? `Only the first ${LIMITS.batchFiles} files were added.`
+      : recipe && !recipeStep && kinds.length ? `Your recipe “${recipe.name}” doesn’t fit these files, so nothing ran on its own. Choose a task below.`
       : null,
     )
     setAnnouncement(next.length === 1 ? `Added ${next[0]!.file.name}.` : `Added ${next.length} files, ${kinds.length} can be converted.`)
@@ -202,9 +217,23 @@ export function App() {
     setAnnouncement(ctrl.signal.aborted ? 'Cancelled.' : 'All files are done.')
   }
 
+  // A switched-on recipe runs as soon as its files are in (single photos, PDFs and documents already run live).
+  useEffect(() => {
+    if (!autoRun || !step) return
+    setAutoRun(false)
+    if (single && OPS[step.op].manual) runSingle()
+    else if (!single && usable.length > 1) void runAll()
+  }, [autoRun, stepKey])
+
+  /** History records what was downloaded: file names and settings, never contents. */
+  const recordDownload = (sources: File[]) => {
+    if (step) void library.record({ names: sources.slice(0, 3).map((f) => f.name), count: sources.length, task: describeStep(step), outcome: 'done' })
+  }
+
   const allFiles = items.flatMap((it) => it.output?.files ?? [])
   const downloadZip = async () => {
     download(await zipBlobs(allFiles), `switchlet-${allFiles.length}-files.zip`)
+    recordDownload(items.filter((it) => it.output).map((it) => it.file))
     releaseWorkers()
   }
 
@@ -246,6 +275,42 @@ export function App() {
     }
   }, [addFiles])
 
+  // A recipe link (#recipe=…): ask before adding it. The fragment never reaches a server.
+  useEffect(() => {
+    const check = () => {
+      const m = location.hash.match(/^#recipe=(.*)$/)
+      if (!m) return
+      history.replaceState(null, '', location.pathname + location.search)
+      const r = decodeRecipe(m[1]!)
+      if (typeof r === 'string') setNotice(r)
+      else setImporting(r)
+    }
+    check()
+    window.addEventListener('hashchange', check)
+    return () => window.removeEventListener('hashchange', check)
+  }, [])
+
+  // Files shared from another app (the Android share sheet), parked by the service worker until now, then deleted.
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return
+    history.replaceState(null, '', '/')
+    void (async () => {
+      try {
+        const cache = await caches.open('switchlet-shared')
+        const files: File[] = []
+        for (const request of await cache.keys()) {
+          const res = await cache.match(request)
+          if (res) files.push(new File([await res.blob()], decodeURIComponent(res.headers.get('x-file-name') ?? 'shared-file'), { type: res.headers.get('content-type') ?? '' }))
+        }
+        await caches.delete('switchlet-shared')
+        void addFiles(files)
+      } catch {
+        await caches.delete('switchlet-shared').catch(() => {})
+        setNotice('The shared files couldn’t be opened. Try sharing them again.')
+      }
+    })()
+  }, [addFiles])
+
   const pick = () => picker.current?.click()
   const kind = usable[0]?.detected.kind ?? 'unknown'
   const doneCount = items.filter((it) => it.status === 'done').length
@@ -265,7 +330,55 @@ export function App() {
   )
   const cancelSingle = () => { singleCtrl.current?.abort(); if (single) patch(single.id, { status: 'cancelled' }) }
   const retrySingle = () => setRunNonce((n) => n + 1)
+  const running = items.some((it) => it.status === 'running') || combo.status === 'running'
+  const cancelRunning = () => {
+    if (batch?.running || combo.status === 'running') batchCtrl.current?.abort()
+    if (single?.status === 'running') cancelSingle()
+  }
+  const runPrimary = () => {
+    if (!step || running) return
+    if (single) { if (OPS[step.op].manual) runSingle() } else if (usable.length > 1) void runAll()
+  }
+  const primaryDownload = () => document.querySelector<HTMLElement>('[data-primary-download]')?.click()
+
+  // Keyboard: Ctrl/Cmd+K palette, Ctrl/Cmd+O open; plain keys only when not typing in a field or using a dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const cmd = e.metaKey || e.ctrlKey
+      const key = e.key.toLowerCase()
+      if (cmd && !e.altKey && (key === 'k' || key === 'o')) {
+        e.preventDefault()
+        if (key === 'k') setPaletteOpen(true)
+        else pick()
+        return
+      }
+      const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
+      if (cmd || e.altKey || typing || document.querySelector('dialog[open]')) return
+      if (e.key === '?') { e.preventDefault(); setHelpOpen(true) }
+      else if (key === 'd') primaryDownload()
+      else if (e.key === 'Escape') cancelRunning()
+      else if (e.key === 'Enter' && e.target === document.body) runPrimary()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   const runLabel = !step ? '' : step.op === 'pdf.merge' ? `Merge ${usable.length} PDFs` : step.op === 'image.toPdf' ? `Make a PDF from ${usable.length} images` : `${VERB[step.op] ?? 'Convert'} ${usable.length} files`
+
+  const hasResult = !!(single?.output?.files.length || allFiles.length || combo.output?.files.length)
+  const commands: Command[] = [
+    { id: 'open', label: 'Choose files', keys: `${mod} O`, run: pick },
+    ...(items.length ? [{ id: 'clear', label: 'Start over', run: clear }] : []),
+    ...(step && !running && (single ? OPS[step.op].manual : usable.length > 1) ? [{ id: 'run', label: single ? 'Run the task' : runLabel, keys: 'Enter', run: runPrimary }] : []),
+    ...(hasResult ? [{ id: 'download', label: 'Download the result', keys: 'D', run: primaryDownload }] : []),
+    ...(running ? [{ id: 'cancel', label: 'Cancel', keys: 'Esc', run: cancelRunning }] : []),
+    ...ops.map((op) => ({ id: `task-${op}`, label: `Task: ${OPS[op].label}`, run: () => setStep(makeStep(op, kind)) })),
+    ...library.recipes.map((r) => (library.pinned?.id === r.id
+      ? { id: `unpin-${r.id}`, label: `Stop using recipe “${r.name}”`, run: () => library.pin(null) }
+      : { id: `pin-${r.id}`, label: `Use recipe “${r.name}” for every drop`, run: () => library.pin(r.id) })),
+    { id: 'proof', label: 'Show what leaves this device', run: () => document.getElementById('proof')?.scrollIntoView() },
+    { id: 'help', label: 'Keyboard shortcuts', keys: '?', run: () => setHelpOpen(true) },
+  ]
 
   return (
     <div className="min-h-dvh">
@@ -274,12 +387,23 @@ export function App() {
           <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true"><rect width="32" height="32" rx="7" className="fill-jade" /><path d="M4 21h7M23.4 21H28M11 21l9-9" className="stroke-on-jade" strokeWidth="2.6" strokeLinecap="round" fill="none" /><circle cx="11" cy="21" r="2.2" className="fill-on-jade" /><circle cx="21" cy="21" r="2.4" className="stroke-on-jade" strokeWidth="1.4" fill="none" /></svg>
           Switchlet
         </button>
-        <a href="#proof" className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
-          <span className="tabular-nums">{proofHeadline}</span>
-        </a>
+        <div className="flex items-center gap-5">
+          <button type="button" onClick={() => setPaletteOpen(true)} className="hidden rounded-md border border-line px-2.5 py-1 text-sm text-muted hover:border-ink hover:text-ink sm:block">
+            Commands <kbd className="ml-1">{mod} K</kbd>
+          </button>
+          <a href="#proof" className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
+            <span className="tabular-nums">{proofHeadline}</span>
+          </a>
+        </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-20 sm:px-8">
+        {library.pinned && (
+          <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-jade px-4 py-2 text-sm">
+            <span>Recipe in use: <strong className="font-semibold">{library.pinned.name}</strong>. Files you drop are converted with it.</span>
+            <button type="button" onClick={() => library.pin(null)} className="text-jade underline underline-offset-4">Stop using it</button>
+          </p>
+        )}
         {items.length === 0 ? (
           <section className="pt-8 sm:pt-14">
             <h1 className="max-w-[15ch] text-[clamp(2.6rem,7.5vw,5.25rem)] leading-[1.02] font-light tracking-[-0.025em]">Convert files without uploading them.</h1>
@@ -297,6 +421,8 @@ export function App() {
               </span>
               <span className="mt-4 max-w-[60ch] text-sm text-muted">Photos, PDFs, video, audio, Markdown, HTML, CSV, JSON and Excel. Up to {LIMITS.batchFiles} at a time.</span>
             </button>
+            {notice && <p className="mt-6 max-w-[70ch] text-muted" role="status">{notice}</p>}
+            <LibraryPanel library={library} />
           </section>
         ) : (
           <section className="pt-6" aria-label="Your files">
@@ -342,14 +468,16 @@ export function App() {
                     zipName={`${stem(single.file.name)}.zip`}
                     onCancel={cancelSingle}
                     onRetry={runSingle}
+                    onDownload={() => recordDownload([single.file])}
                   />
+                  {single.output && <SaveRecipe key={stepKey} step={step} library={library} />}
                 </div>
               </div>
             ) : single && step ? (
               <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
                 <div className="min-w-0 space-y-8">
                   {step.op === 'image.convert' || step.op === 'image.scrub' ? (
-                    <ImageResult item={single} onCancel={cancelSingle} onRetry={retrySingle} />
+                    <ImageResult item={single} onCancel={cancelSingle} onRetry={retrySingle} onDownload={() => recordDownload([single.file])} />
                   ) : (
                     <>
                       {step.op === 'pdf.pages' && (
@@ -361,9 +489,11 @@ export function App() {
                         zipName={`${stem(single.file.name)}.zip`}
                         onCancel={cancelSingle}
                         onRetry={retrySingle}
+                        onDownload={() => recordDownload([single.file])}
                       />
                     </>
                   )}
+                  {single.output && <SaveRecipe key={stepKey} step={step} library={library} />}
                 </div>
                 {options}
               </div>
@@ -399,15 +529,16 @@ export function App() {
                     )
                   )}
                   {!combines && !batch?.running && allFiles.length > 1 && (
-                    <button type="button" onClick={downloadZip} className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110">
+                    <button type="button" onClick={downloadZip} data-primary-download className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110">
                       Download all as ZIP ({formatBytes(allFiles.reduce((n, f) => n + f.blob.size, 0))})
                     </button>
                   )}
                 </div>
                 {combines && combo.status !== 'idle' && (
-                  <JobResult job={combo} zipName="switchlet.zip" onCancel={() => batchCtrl.current?.abort()} onRetry={runAll} />
+                  <JobResult job={combo} zipName="switchlet.zip" onCancel={() => batchCtrl.current?.abort()} onRetry={runAll} onDownload={() => recordDownload(usable.map((it) => it.file))} />
                 )}
-                <BatchList items={items} reorderable={combines} onMove={moveItem} />
+                {step && (doneCount > 0 || combo.output) && <SaveRecipe key={stepKey} step={step} library={library} />}
+                <BatchList items={items} reorderable={combines} onMove={moveItem} onDownload={(it) => recordDownload([it.file])} />
               </div>
             )}
           </section>
@@ -423,6 +554,19 @@ export function App() {
         </div>
       )}
       <div aria-live="polite" className="sr-only">{announcement}</div>
+      {paletteOpen && <Palette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
+      {importing && (
+        <ImportRecipe
+          recipe={importing}
+          onClose={() => setImporting(null)}
+          onAdd={() => {
+            void library.save(importing.name, importing.steps[0]!)
+            setNotice(`Added the recipe “${importing.name}”. You’ll find it under Your recipes.`)
+            setImporting(null)
+          }}
+        />
+      )}
     </div>
   )
 }

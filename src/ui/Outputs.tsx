@@ -44,18 +44,18 @@ export function JobStatus({ job, onCancel, onRetry }: { job: Job; onCancel: () =
   return null
 }
 
-function FileLink({ file }: { file: { blob: Blob; name: string } }) {
+function FileLink({ file, onDownload }: { file: { blob: Blob; name: string }; onDownload?: () => void }) {
   const url = useObjectUrl(file.blob)
   return (
     <li className="flex items-baseline justify-between gap-4 py-1.5">
       <span className="min-w-0 truncate">{file.name}</span>
       <span className="shrink-0 text-sm text-muted tabular-nums">{formatBytes(file.blob.size)}</span>
-      {url && <a href={url} download={file.name} className="shrink-0 text-jade underline underline-offset-4">Download</a>}
+      {url && <a href={url} download={file.name} onClick={onDownload} className="shrink-0 text-jade underline underline-offset-4">Download</a>}
     </li>
   )
 }
 
-function SingleDownload({ file, inputSize }: { file: { blob: Blob; name: string }; inputSize?: number }) {
+function SingleDownload({ file, inputSize, onDownload }: { file: { blob: Blob; name: string }; inputSize?: number; onDownload?: () => void }) {
   const url = useObjectUrl(file.blob)
   return (
     <div className="flex flex-wrap items-end justify-between gap-6">
@@ -71,23 +71,24 @@ function SingleDownload({ file, inputSize }: { file: { blob: Blob; name: string 
           <p className="text-2xl tabular-nums">{formatBytes(file.blob.size)}</p>
         )}
       </div>
-      {url && <a href={url} download={file.name} className={primary}>Download {file.name}</a>}
+      {url && <a href={url} download={file.name} onClick={onDownload} className={primary} data-primary-download>Download {file.name}</a>}
     </div>
   )
 }
 
 const SHOWN = 50
 
-export function Downloads({ output, inputSize, zipName }: { output: Output; inputSize?: number; zipName: string }) {
+export function Downloads({ output, inputSize, zipName, onDownload }: { output: Output; inputSize?: number; zipName: string; onDownload?: () => void }) {
   const [zipping, setZipping] = useState(false)
   const { files } = output
   if (!files.length) return null
-  if (files.length === 1) return <SingleDownload file={files[0]!} inputSize={inputSize} />
+  if (files.length === 1) return <SingleDownload file={files[0]!} inputSize={inputSize} onDownload={onDownload} />
   const total = files.reduce((n, f) => n + f.blob.size, 0)
   const saveZip = async () => {
     setZipping(true)
     try {
       download(await zipBlobs(files), zipName)
+      onDownload?.()
     } finally {
       setZipping(false)
     }
@@ -96,12 +97,12 @@ export function Downloads({ output, inputSize, zipName }: { output: Output; inpu
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <p className="text-2xl tabular-nums">{files.length} files, <span className="text-muted">{formatBytes(total)}</span></p>
-        <button type="button" onClick={saveZip} disabled={zipping} className={`${primary} disabled:opacity-60`}>
+        <button type="button" onClick={saveZip} disabled={zipping} className={`${primary} disabled:opacity-60`} data-primary-download>
           {zipping ? 'Making ZIP…' : 'Download all as ZIP'}
         </button>
       </div>
       <ul className="divide-y divide-rule border-y border-rule">
-        {files.slice(0, SHOWN).map((f) => <FileLink key={f.name} file={f} />)}
+        {files.slice(0, SHOWN).map((f) => <FileLink key={f.name} file={f} onDownload={onDownload} />)}
       </ul>
       {files.length > SHOWN && <p className="text-sm text-muted">And {files.length - SHOWN} more in the ZIP.</p>}
     </div>
@@ -181,7 +182,7 @@ function OutputPreview({ file }: { file: { blob: Blob; name: string } }) {
 }
 
 /** The result area for every task except single-image conversions (which have the before/after view). */
-export function JobResult({ job, inputSize, zipName, onCancel, onRetry }: { job: Job; inputSize?: number; zipName: string; onCancel: () => void; onRetry: () => void }) {
+export function JobResult({ job, inputSize, zipName, onCancel, onRetry, onDownload }: { job: Job; inputSize?: number; zipName: string; onCancel: () => void; onRetry: () => void; onDownload?: () => void }) {
   const out = job.output
   return (
     <div className="space-y-6">
@@ -189,7 +190,7 @@ export function JobResult({ job, inputSize, zipName, onCancel, onRetry }: { job:
       {out && (
         <div className={`space-y-6 transition-opacity ${job.status === 'running' ? 'opacity-60' : ''}`}>
           {out.note && <p className="text-muted">{out.note}</p>}
-          <Downloads output={out} inputSize={out.files.length === 1 ? inputSize : undefined} zipName={zipName} />
+          <Downloads output={out} inputSize={out.files.length === 1 ? inputSize : undefined} zipName={zipName} onDownload={onDownload} />
           {out.files.length === 1 && <OutputPreview file={out.files[0]!} />}
           <Report report={out.report} />
           <Previews output={out} />

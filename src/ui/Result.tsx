@@ -61,13 +61,13 @@ function Compare({ item }: { item: Item }) {
 }
 
 /** Single image: before/after compare, size change, download and the hidden-data report. */
-export function ImageResult({ item, onCancel, onRetry }: { item: Item; onCancel: () => void; onRetry: () => void }) {
+export function ImageResult({ item, onCancel, onRetry, onDownload }: { item: Item; onCancel: () => void; onRetry: () => void; onDownload?: () => void }) {
   const out = item.output
   return (
     <div className="space-y-6">
       {(item.status !== 'error' || out) && <Compare item={item} />}
       <JobStatus job={item} onCancel={onCancel} onRetry={onRetry} />
-      {out && <Downloads output={out} inputSize={item.file.size} zipName="switchlet.zip" />}
+      {out && <Downloads output={out} inputSize={item.file.size} zipName="switchlet.zip" onDownload={onDownload} />}
       {out && <Report report={out.report} />}
     </div>
   )
