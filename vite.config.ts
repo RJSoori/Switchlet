@@ -74,9 +74,11 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), pdfjsAssets(), serviceWorker()],
-  // Fixed local ports (5170–5175 range, away from Vite's default 5173); fail instead of drifting to another port.
-  server: { port: 5174, strictPort: true, headers: isolation },
-  preview: { port: 5175, strictPort: true, headers: previewHeaders },
+  // Fixed local ports, clear of Vite's defaults (5173/4173) and of other local projects on 5174/5175;
+  // strictPort fails loudly instead of drifting, so checks never hit another app. Vite's defaults keep
+  // both servers loopback-only (host 'localhost', localhost-only CORS, allowedHosts []); don't loosen them.
+  server: { port: 5180, strictPort: true, headers: isolation },
+  preview: { port: 5181, strictPort: true, headers: previewHeaders },
   optimizeDeps: { exclude: wasmPackages },
   worker: { format: 'es' },
   build: {
