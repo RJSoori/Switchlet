@@ -5,7 +5,7 @@ import { GIFEncoder, applyPalette, quantize } from 'gifenc'
 import {
   ALL_FORMATS, BlobSource, BufferTarget, CanvasSink, Conversion, Input, MovOutputFormat, Mp4OutputFormat, OggOutputFormat,
   Output, Quality, WavOutputFormat, WebMOutputFormat, getEncodableAudioCodecs, getEncodableVideoCodecs,
-  type DiscardedTrack, type MetadataTags, type OutputFormat,
+  type DiscardedTrack, type InputAudioTrack, type MetadataTags, type OutputFormat,
 } from 'mediabunny'
 import type { Kind } from '../core/detect'
 import {
@@ -79,6 +79,7 @@ export function describeTags(tags: MetadataTags): Finding[] {
   return [...found].map(([label, detail]) => ({ label, detail }))
 }
 
+/** Describes the input's tags and track titles, then blanks the titles (Mediabunny copies them, with no option to stop it). */
 async function tagReport(input: Input): Promise<MetadataReport> {
   let found: Finding[] = []
   try {
@@ -86,8 +87,20 @@ async function tagReport(input: Input): Promise<MetadataReport> {
   } catch {
     // Unreadable tags aren't copied either; nothing to describe.
   }
+  for (const track of await input.getTracks()) {
+    const name = (await track.getName())?.trim()
+    if (name) found.push({ label: 'Track title', detail: name.slice(0, 120) })
+    track.getName = async () => null
+  }
   return { found, removed: found.length ? ['All metadata tags (titles, dates, location, device details)'] : [], kept: [] }
 }
+
+/**
+ * FLAC and Vorbis keep their own tags (and cover art) inside the codec setup data, which a straight copy
+ * carries into the new file. Always re-encode them; other audio is copied when nothing else needs to change.
+ */
+const TAGGED_AUDIO = new Set(['flac', 'vorbis'])
+const audioOptions = (quality?: Quality) => (track: InputAudioTrack) => ({ quality, forceTranscode: TAGGED_AUDIO.has(track.codec ?? '') || undefined })
 
 /* ---------- running a conversion ---------- */
 
@@ -171,7 +184,7 @@ export async function convertVideo(file: File, s: VideoSettings, progress: Progr
   const conversion = await Conversion.init({
     input, output, tags: NO_TAGS,
     video: { height: resize, quality, forceTranscode: s.quality !== 'keep' || undefined },
-    audio: { quality },
+    audio: audioOptions(quality),
   })
   requireVideo(conversion)
   await execute(conversion, progress, s.quality === 'keep' && !resize ? 'Repackaging' : 'Converting')
@@ -197,7 +210,7 @@ export async function trimVideo(file: File, kind: Kind, clip: Clip, progress: Pr
   const { start, end, duration } = await span(input, clip)
   const container = containerFor(kind)
   const output = new Output({ format: VIDEO[container].format(), target: new BufferTarget() })
-  const conversion = await Conversion.init({ input, output, tags: NO_TAGS, trim: { start, end } })
+  const conversion = await Conversion.init({ input, output, tags: NO_TAGS, trim: { start, end }, audio: audioOptions() })
   requireVideo(conversion)
   await execute(conversion, progress, 'Trimming')
   return {

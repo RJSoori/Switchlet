@@ -31,6 +31,7 @@ No other exceptions. Any future one must be unavoidable and documented here.
 ## Audio and video
 - Decoding and encoding use the browser's own WebCodecs (sandboxed, often hardware) through Mediabunny, inside the worker. Files are read in chunks on demand, never loaded whole.
 - Mediabunny copies an input's metadata tags by default; Switchlet always writes none (and no creation time). Phone videos keep location and device details in those tags; the report lists what was dropped.
+- Two places outside the tags are handled too: per-track titles (which Mediabunny would copy, with no option to stop it) are blanked on the input, and FLAC or Vorbis audio is always re-encoded, because its codec setup data carries its own tags and cover art.
 - What a browser can decode or encode varies. When a track can't be converted, Switchlet stops and says why rather than handing back a "video" that lost its picture.
 
 ## Main-thread exceptions
