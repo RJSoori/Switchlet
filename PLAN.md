@@ -1,10 +1,11 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 next, not started. Local ports: dev 5180, preview 5181.
+**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) built and verified on branch `phase-5` (2026-11-02), waiting for review before merging. Local ports: dev 5180, preview 5181.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
 Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
 Phase 4 deviations: a recipe holds one step (links with more are refused as "needs a newer version"). History records downloads (up to 3 file names plus a count, the task and the date), not failed jobs or sizes. Shared files wait behind an "Open?" prompt, because any website can post files to the share target. The precache is 5.8 MB brotli and is skipped when Data Saver is on. A pinned recipe runs only on files it fits; otherwise a notice says so.
+Phase 5 deviations: Trusted Types kept (enforced, two policies). WebRTC is removed in script, not by the CSP `webrtc` directive, which no browser supports yet. Transparent videos are copied without their alpha layer before decoding, because Mediabunny's alpha workers use `blob:` URLs the CSP refuses. The first-load budget is enforced by the build (fails over 120 KB), and contrast by a unit test. The dark theme's `line` colour was lightened (#5E7068 → #61736B) to reach 3:1 on fields.
 
 ## Context
 This is a new build in an empty folder, `R:\Projects\Switchlet`. The app is a file converter where nothing is ever uploaded: every conversion runs in the browser using WASM, Web Workers and the browser's built-in codecs. Privacy is the product, and the app has to show it, not just claim it. It should be fast, need no sign-up, be strictly secured, and keep people coming back with recipes, offline use and a share target.
@@ -88,7 +89,7 @@ Tests sit next to the code they test (`src/**/*.test.ts`).
 `public/_headers` (Cloudflare Pages; the same file is applied to `vite preview`, so tests run against the real policy):
 ```
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types default dompurify
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Resource-Policy: same-origin

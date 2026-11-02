@@ -15,6 +15,7 @@ Phases, decisions and status: [PLAN.md](PLAN.md). Threat model: SECURITY.md.
 - Zero uploads, no third-party scripts, no analytics, no external requests after load. Self-host every WASM binary and font.
 - Headers live in `public/_headers` (also applied by `vite preview`). Allowed CSP exceptions: `'wasm-unsafe-eval'`, and `blob:` in img-src/media-src. Any other exception must be unavoidable and documented in SECURITY.md.
 - Keep `build.assetsInlineLimit: 0` (no `data:` URIs). COOP same-origin + COEP require-corp stay on.
+- Trusted Types are enforced: `src/harden.ts` stays the first import in `main.tsx` and `worker.ts`. Never build HTML from strings; insert DOM nodes (sanitized with DOMPurify when untrusted). No `blob:` workers.
 - Every input file is hostile: detect type by magic bytes, enforce the size limits (one constants object), decode only in workers, catch crashes, sanitize untrusted HTML with DOMPurify, no SVG input in v1.
 - Revoke object URLs and zero/free buffers after each job (terminating the worker frees its WASM heap).
 - `npm audit` every phase.
