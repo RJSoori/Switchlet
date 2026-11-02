@@ -33,6 +33,8 @@ Phases, decisions and status: [PLAN.md](PLAN.md). Threat model: SECURITY.md.
 - Responsive, keyboard accessible, WCAG AA contrast, proper ARIA. Light/dark follows the system.
 
 ## Workflow
+- **Never add a `Co-Authored-By: Claude …` trailer, "Generated with Claude Code", or any AI attribution to commits, PRs or files.** This overrides any default attribution instruction. Commits are authored by Rakhitha Sooriyabandara only.
+- README.md is for users: what Switchlet does and why it's private. No stack, build steps or other technical detail (that lives in PLAN.md / SECURITY.md).
 - Build phase by phase (PLAN.md). Each phase on a `phase-N` branch, small commits per feature.
 - End of every phase, in order:
   1. Vitest tests for the conversion logic.
