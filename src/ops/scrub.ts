@@ -2,7 +2,7 @@
 // Input is hostile: every length is bounds-checked, and malformed structure throws DecodeError.
 import ExifReader from 'exifreader'
 import { ascii, be16, be32, le32, type Kind } from '../core/detect'
-import { DecodeError } from './errors'
+import { DecodeError, NoticeError } from './errors'
 
 export { DecodeError }
 
@@ -238,6 +238,18 @@ export function stripWebp(b: Uint8Array): { data: Uint8Array; removed: string[];
 
 export const LOSSLESS_SCRUB: Kind[] = ['jpeg', 'png', 'webp']
 
+/**
+ * The metadata parts a JPEG, PNG or WebP holds (text notes, XMP, timestamps…), for the report after a re-encode,
+ * which drops them all. describeMetadata reads EXIF fields only, so a PNG with just an author note looked clean.
+ */
+export function hiddenParts(input: Uint8Array, kind: Kind): string[] {
+  try {
+    return kind === 'jpeg' ? stripJpeg(input).removed : kind === 'png' ? stripPng(input).removed : kind === 'webp' ? stripWebp(input).removed : []
+  } catch {
+    return [] // the browser's decoder may still read a file these strict walkers reject
+  }
+}
+
 export function scrubImage(input: Uint8Array, kind: Kind): { data: Uint8Array; report: MetadataReport } {
   const { found, orientation } = describeMetadata(input)
   const stripped =
@@ -245,6 +257,6 @@ export function scrubImage(input: Uint8Array, kind: Kind): { data: Uint8Array; r
     : kind === 'png' ? stripPng(input)
     : kind === 'webp' ? stripWebp(input)
     : null
-  if (!stripped) throw new DecodeError(`Removing metadata without re-encoding isn't available for this format.`)
+  if (!stripped) throw new NoticeError('Removing hidden data without re-encoding works for JPG, PNG and WebP. For this format, choose Convert: it removes hidden data too.')
   return { data: stripped.data, report: { found, removed: stripped.removed, kept: stripped.kept } }
 }

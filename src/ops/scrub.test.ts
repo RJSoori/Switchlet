@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { detect } from '../core/detect'
-import { DecodeError, describeMetadata, scrubImage } from './scrub'
+import { DecodeError, describeMetadata, hiddenParts, scrubImage } from './scrub'
 
 const str = (s: string) => [...s].map((c) => c.charCodeAt(0))
 const u16 = (n: number) => [(n >> 8) & 255, n & 255]
@@ -167,6 +167,13 @@ describe('PNG scrub', () => {
     const b = png()
     b.set(u32(0x7fffffff), 33)
     expect(() => scrubImage(b, 'png')).toThrow(DecodeError)
+  })
+  it('lists the parts a re-encode drops, and nothing for a file the walker rejects', () => {
+    expect(hiddenParts(png(), 'png')).toContain('Text notes (author, software, comments, AI prompts)')
+    const b = png()
+    b.set(u32(0x7fffffff), 33)
+    expect(hiddenParts(b, 'png')).toEqual([])
+    expect(hiddenParts(png(), 'avif')).toEqual([])
   })
 })
 

@@ -4,7 +4,7 @@
 import type { Kind } from '../core/detect'
 import { FORMAT_LABEL, fitWithin, type ImageSettings } from '../core/ops'
 import { decodeImage, drawPixels, encodeJpeg } from './decode'
-import { describeMetadata, type MetadataReport } from './scrub'
+import { describeMetadata, hiddenParts, type MetadataReport } from './scrub'
 
 export type Progress = (fraction: number, stage: string) => void
 
@@ -29,6 +29,7 @@ export interface ImageResult {
 
 export async function convertImage(input: Uint8Array<ArrayBuffer>, kind: Kind, s: ImageSettings, progress: Progress = () => {}): Promise<ImageResult> {
   const { found, orientation } = describeMetadata(input)
+  const parts = hiddenParts(input, kind)
   progress(0.05, 'Reading image')
   const bitmap = await decodeImage(input, kind)
   const preview = kind === 'heic'
@@ -46,7 +47,7 @@ export async function convertImage(input: Uint8Array<ArrayBuffer>, kind: Kind, s
   progress(1, 'Done')
 
   const kept = orientation && orientation !== 1 ? ['Orientation, applied to the pixels'] : []
-  const removed = found.length ? ['all metadata (only the pixels are kept)'] : []
+  const removed = parts.length ? parts : found.length ? ['all metadata (only the pixels are kept)'] : []
   return { data, width, height, report: { found, removed, kept }, preview }
 }
 

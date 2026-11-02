@@ -172,7 +172,7 @@ export function limitProblem(d: Detected, size: number): string | null {
   if (size > max) return `This ${d.label} is ${formatBytes(size)}, over the ${formatBytes(max)} limit for this type. Try a smaller file.`
   if (d.width && d.height && d.width * d.height > LIMITS.pixels) {
     const mp = Math.round((d.width * d.height) / 1e6)
-    return `This image is ${d.width.toLocaleString('en')} × ${d.height.toLocaleString('en')} pixels (${mp.toLocaleString('en')} megapixels), over the 100-megapixel limit a browser tab can safely handle.`
+    return `This image is ${d.width.toLocaleString('en')} × ${d.height.toLocaleString('en')} pixels (${mp.toLocaleString('en')} megapixels), over the 100-megapixel limit a browser tab can safely handle. Make it smaller in another app, then try again.`
   }
   return null
 }

@@ -2,7 +2,7 @@
 // can use it without loading ExifReader.
 import { LIMITS, type Kind } from '../core/detect'
 import { fitWithin } from '../core/ops'
-import { DecodeError } from './errors'
+import { DecodeError, NoticeError } from './errors'
 
 /**
  * Decode with the browser's own decoder (falling back to libheif for HEIC).
@@ -20,7 +20,7 @@ export async function decodeImage(input: Uint8Array<ArrayBuffer>, kind: Kind, op
   }
   if (bitmap.width * bitmap.height > LIMITS.pixels) {
     bitmap.close()
-    throw new DecodeError(`This image is ${bitmap.width} × ${bitmap.height} pixels, over the 100-megapixel limit a browser tab can safely handle.`)
+    throw new NoticeError(`This image is ${bitmap.width} × ${bitmap.height} pixels, over the 100-megapixel limit a browser tab can safely handle. Make it smaller in another app, then try again.`)
   }
   return bitmap
 }
