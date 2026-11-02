@@ -32,8 +32,9 @@ export function startNetworkLog() {
   new PerformanceObserver((list) => recordRequests(toNetRecord(list.getEntries()), 'page')).observe({ type: 'resource', buffered: true })
   // Count blocked loads only. Inline-handler reports ("inline"/"eval") aren't requests: Chrome raises them while
   // DOMPurify parses hostile HTML in an inert document to sanitize it, before the handler is removed.
+  // Trusted Types reports ("trusted-types-sink"/"-policy") are refused code, not requests either.
   document.addEventListener('securitypolicyviolation', (e) => {
-    if (e.blockedURI !== 'inline' && e.blockedURI !== 'eval') update({ blocked: log.blocked + 1 })
+    if (e.blockedURI !== 'inline' && e.blockedURI !== 'eval' && !e.blockedURI.startsWith('trusted-types')) update({ blocked: log.blocked + 1 })
   })
   const sw = navigator.serviceWorker
   if (!sw) return

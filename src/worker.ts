@@ -1,5 +1,6 @@
 // The single conversion worker. Codecs and libraries load lazily per task, so the first conversion of a
 // kind downloads only what it needs. The main thread terminates this worker to cancel a job or free memory.
+import './harden' // first: Trusted Types policy (codecs start their own workers)
 import { expose, transfer } from 'comlink'
 import type { Kind } from './core/detect'
 import { FORMAT_MIME, imageOutputName, type InFile, type Step, type TaskResult } from './core/ops'

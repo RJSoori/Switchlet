@@ -1,8 +1,9 @@
 # Security headers for Cloudflare Pages. vite.config.ts applies the /* block to `vite preview` too.
 # CSP exceptions (see SECURITY.md): 'wasm-unsafe-eval' compiles WASM only (JS eval stays blocked);
 # blob: in img-src/media-src shows previews of results that exist only in this tab's memory.
+# Trusted Types: only the 'default' policy (src/harden.ts) and DOMPurify's may turn strings into code or markup.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types default dompurify
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Resource-Policy: same-origin

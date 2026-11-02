@@ -1,3 +1,4 @@
+import './harden' // first: Trusted Types policy and WebRTC removal
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'

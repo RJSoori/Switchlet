@@ -29,7 +29,8 @@ ${body}
 }
 
 export function htmlToMarkdown(html: string): string {
-  const clean = DOMPurify.sanitize(html, { ...HTML_ONLY, FORBID_TAGS: ['style'] })
+  // Turndown gets the sanitized DOM rather than a string, so it never parses HTML itself (Trusted Types would refuse it).
+  const clean = DOMPurify.sanitize(html, { ...HTML_ONLY, FORBID_TAGS: ['style'], RETURN_DOM: true })
   return new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' }).turndown(clean)
 }
 
