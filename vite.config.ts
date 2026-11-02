@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { readdirSync, readFileSync } from 'node:fs'
+import { gzipSync } from 'node:zlib'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -72,8 +73,25 @@ function serviceWorker(): Plugin {
   }
 }
 
+// First-load budget: the JS and CSS that index.html loads must stay within 120 KB gzipped, or the build fails.
+function firstLoadBudget(): Plugin {
+  const BUDGET = 120_000 // kB as Vite reports them
+  return {
+    name: 'switchlet:first-load-budget',
+    apply: 'build',
+    closeBundle() {
+      const html = readFileSync('dist/index.html', 'utf8')
+      const files = [...html.matchAll(/(?:src|href)="\/(assets\/[^"]+\.(?:js|css))"/g)].map((m) => m[1]!)
+      const bytes = files.reduce((n, f) => n + gzipSync(readFileSync(`dist/${f}`)).length, 0)
+      const kb = `${(bytes / 1000).toFixed(1)} KB`
+      if (bytes > BUDGET) throw new Error(`First load is ${kb} gzipped, over the 120 KB budget (${files.join(', ')})`)
+      console.log(`First load: ${kb} gzipped (budget 120 KB)`)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), pdfjsAssets(), serviceWorker()],
+  plugins: [react(), tailwindcss(), pdfjsAssets(), serviceWorker(), firstLoadBudget()],
   // Fixed local ports, clear of Vite's defaults (5173/4173) and of other local projects on 5174/5175;
   // strictPort fails loudly instead of drifting, so checks never hit another app. Vite's defaults keep
   // both servers loopback-only (host 'localhost', localhost-only CORS, allowedHosts []); don't loosen them.
