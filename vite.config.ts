@@ -74,8 +74,9 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), pdfjsAssets(), serviceWorker()],
-  server: { headers: isolation },
-  preview: { headers: previewHeaders },
+  // Fixed local ports (5170–5175 range, away from Vite's default 5173); fail instead of drifting to another port.
+  server: { port: 5174, strictPort: true, headers: isolation },
+  preview: { port: 5175, strictPort: true, headers: previewHeaders },
   optimizeDeps: { exclude: wasmPackages },
   worker: { format: 'es' },
   build: {
