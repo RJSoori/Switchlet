@@ -3,7 +3,7 @@
 // Every output is written with no metadata tags: phone videos carry location and device details there.
 import { GIFEncoder, applyPalette, quantize } from 'gifenc'
 import {
-  ALL_FORMATS, BlobSource, BufferTarget, CanvasSink, Conversion, Input, MovOutputFormat, Mp4OutputFormat, OggOutputFormat,
+  ALL_FORMATS, BlobSource, BufferSource, BufferTarget, CanvasSink, Conversion, Input, MovOutputFormat, Mp4OutputFormat, OggOutputFormat,
   Output, Quality, WavOutputFormat, WebMOutputFormat, getEncodableAudioCodecs, getEncodableVideoCodecs,
   type DiscardedTrack, type InputAudioTrack, type MetadataTags, type OutputFormat,
 } from 'mediabunny'
@@ -115,9 +115,11 @@ function explain(discarded: DiscardedTrack[]): NoticeError {
       return new NoticeError(`This browser can’t read the ${codecName(track.codec)} ${what} in this file. Try Chrome, Edge or Safari, which support more formats.`)
     }
     if (reason === 'no_encodable_target_codec') return new NoticeError(`This browser can’t create ${what} in that format. Choose another format.`)
-    if (reason === 'unknown_source_codec') return new NoticeError(`This file’s ${what} uses a format Switchlet doesn’t recognise.`)
+    if (reason === 'unknown_source_codec') {
+      return new NoticeError(`This file’s ${what} uses a format Switchlet doesn’t recognise. Save it as ${what === 'audio' ? 'M4A or MP3' : 'MP4'} in another app, then try again.`)
+    }
   }
-  return new NoticeError('This recording couldn’t be converted with these settings.')
+  return new NoticeError('This recording couldn’t be converted with these settings. Try another format or a smaller size.')
 }
 
 const lostTracks = (c: Conversion) => c.discardedTracks.filter((d) => d.reason !== 'discarded_by_user')
@@ -140,6 +142,25 @@ function droppedNote(c: Conversion): string {
     else notes.add(' Extra tracks weren’t kept.')
   }
   return [...notes].join('')
+}
+
+/**
+ * A transparent video's alpha layer can only be decoded by Mediabunny's helper workers, which it builds from blob:
+ * URLs that the security policy refuses (worker-src 'self'), even when the alpha is then thrown away. Copying the
+ * file without that layer needs no decoding, so tasks that decode work from such a copy instead.
+ * Run it after tagReport: the report describes the original, and the copy carries no tags or track titles.
+ * ponytail: the copy is held in memory; fine for the short animations that use transparency, stream it if that changes.
+ */
+async function opaque(input: Input): Promise<Input> {
+  const track = await input.getPrimaryVideoTrack()
+  if (!track || !(await track.canBeTransparent())) return input
+  const mime = (await input.getFormat()).mimeType
+  const format = mime === 'video/quicktime' ? new MovOutputFormat() : mime === 'video/mp4' ? new Mp4OutputFormat() : new WebMOutputFormat()
+  const output = new Output({ format, target: new BufferTarget() })
+  const copy = await Conversion.init({ input, output, tags: NO_TAGS, video: { alpha: 'discard' } })
+  if (!copy.isValid) throw new NoticeError('This video has a transparent background, which Switchlet can’t convert in this browser.')
+  await copy.execute()
+  return new Input({ formats: ALL_FORMATS, source: new BufferSource(resultBuffer(output)) })
 }
 
 async function openOrFail(file: Blob): Promise<Input> {
@@ -174,8 +195,9 @@ function outName(input: string, ext: string, suffix = ''): string {
 /* ---------- tasks ---------- */
 
 export async function convertVideo(file: File, s: VideoSettings, progress: Progress): Promise<TaskResult> {
-  const input = await openOrFail(file)
-  const report = await tagReport(input)
+  const original = await openOrFail(file)
+  const report = await tagReport(original)
+  const input = await opaque(original)
   const track = await input.getPrimaryVideoTrack()
   if (!track) throw NO_VIDEO
   const resize = s.maxHeight && track.displayHeight > s.maxHeight ? s.maxHeight : undefined // never upscale
@@ -204,8 +226,9 @@ async function span(input: Input, clip: Clip): Promise<{ start: number; end: num
 }
 
 export async function trimVideo(file: File, kind: Kind, clip: Clip, progress: Progress): Promise<TaskResult> {
-  const input = await openOrFail(file)
-  const report = await tagReport(input)
+  const original = await openOrFail(file)
+  const report = await tagReport(original)
+  const input = await opaque(original)
   if (!(await input.getPrimaryVideoTrack())) throw NO_VIDEO
   const { start, end, duration } = await span(input, clip)
   const container = containerFor(kind)
@@ -232,7 +255,7 @@ export async function extractAudio(file: File, format: AudioFormat, progress: Pr
 }
 
 export async function makeGif(file: File, s: Clip & { fps: number; width: number }, progress: Progress): Promise<TaskResult> {
-  const input = await openOrFail(file)
+  const input = await opaque(await openOrFail(file))
   const track = await input.getPrimaryVideoTrack()
   if (!track) throw new NoticeError('This file has no video to turn into a GIF.')
   if (!(await track.canDecode())) {
