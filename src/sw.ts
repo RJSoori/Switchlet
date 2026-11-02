@@ -33,16 +33,21 @@ sw.addEventListener('fetch', (event) => {
   event.respondWith(request.mode === 'navigate' ? networkFirst(request) : cacheFirst(request))
 })
 
+// ignoreVary: servers may send "Vary: Origin". The page's module and worker requests carry an Origin header
+// the precache requests didn't, so a Vary-aware lookup misses every script when offline. All entries are
+// this origin's own files, identical whoever asks.
+const FROM_APP: MultiCacheQueryOptions = { cacheName: APP, ignoreVary: true }
+
 async function networkFirst(request: Request): Promise<Response> {
   try {
     return await fetch(request)
   } catch {
-    return (await caches.match('/', { cacheName: APP })) ?? Response.error()
+    return (await caches.match('/', FROM_APP)) ?? Response.error()
   }
 }
 
 async function cacheFirst(request: Request): Promise<Response> {
-  return (await caches.match(request, { cacheName: APP })) ?? fetch(request)
+  return (await caches.match(request, FROM_APP)) ?? fetch(request)
 }
 
 async function meterUpload(request: Request): Promise<Response> {
