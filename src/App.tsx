@@ -65,6 +65,10 @@ export function App() {
   const batchCtrl = useRef<AbortController | null>(null)
   const singleCtrl = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  /** After files are added, focus moves to their heading (the button that was focused is gone). */
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [landed, setLanded] = useState(0)
+  useEffect(() => { if (landed) heading.current?.focus() }, [landed])
   const proofHeadline = useProofHeadline()
   const library = useLibrary()
   const pinnedRef = useRef<Recipe | null>(null)
@@ -110,14 +114,15 @@ export function App() {
     setItems(next)
     setStep(recipeStep ?? (op ? makeStep(op, kinds[0]!) : null))
     if (recipeStep) setAutoRun(true)
+    setLanded(current)
     const mixed = kinds.length > 1 && !opsFor(kinds).length
-    setNotice(
+    const note =
       mixed ? 'These files are different kinds. Switchlet works on one kind at a time: drop just the photos, just the PDFs, or just the documents.'
       : files.length > accepted.length ? `Only the first ${LIMITS.batchFiles} files were added.`
       : recipe && !recipeStep && kinds.length ? `Your recipe “${recipe.name}” doesn’t fit these files, so nothing ran on its own. Choose a task below.`
-      : null,
-    )
-    setAnnouncement(next.length === 1 ? `Added ${next[0]!.file.name}.` : `Added ${next.length} files, ${kinds.length} can be converted.`)
+      : null
+    setNotice(note)
+    setAnnouncement(`${next.length === 1 ? `Added ${next[0]!.file.name}.` : `Added ${next.length} files, ${kinds.length} can be converted.`}${note ? ` ${note}` : ''}`)
   }, [clear])
 
   const convertItem = useCallback(async (item: Item, s: Step, signal: AbortSignal, quietCancel: boolean) => {
@@ -161,6 +166,7 @@ export function App() {
     const ctrl = new AbortController()
     singleCtrl.current = ctrl
     setRanKey(stepKey)
+    setAnnouncement('Started. Press Escape to cancel.')
     void convertItem(single, step, ctrl.signal, false).then((out) => {
       if (out) setAnnouncement(out.files[0] ? `${out.files[0].name} is ready, ${formatBytes(out.files[0].blob.size)}.` : out.note ?? 'Done.')
     })
@@ -359,7 +365,7 @@ export function App() {
       if (e.key === '?') { e.preventDefault(); setHelpOpen(true) }
       else if (key === 'd') primaryDownload()
       else if (e.key === 'Escape') cancelRunning()
-      else if (e.key === 'Enter' && e.target === document.body) runPrimary()
+      else if (e.key === 'Enter' && (e.target === document.body || e.target === heading.current)) runPrimary()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -429,7 +435,7 @@ export function App() {
         ) : (
           <section className="pt-6" aria-label="Your files">
             <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-rule pb-4">
-              <h1 className="min-w-0 text-2xl font-medium">
+              <h1 ref={heading} tabIndex={-1} className="min-w-0 text-2xl font-medium focus:outline-none">
                 {items.length === 1 ? (
                   <>
                     <span className="block truncate">{items[0]!.file.name}</span>
@@ -510,12 +516,14 @@ export function App() {
                 <div className="flex flex-wrap items-center gap-4">
                   {batch?.running ? (
                     <>
-                      <div className="min-w-48 flex-1" role="status">
+                      <div className="min-w-48 flex-1">
                         <p>
                           {doneCount} of {usable.length} done, <span className="tabular-nums">{percent(batchProgress)}</span>
                           {batchEta !== null && <span className="text-muted">, about {batchEta} s left</span>}
                         </p>
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-rule"><div className="h-full bg-jade" style={{ width: percent(batchProgress) }} /></div>
+                        <div role="progressbar" aria-label={`${doneCount} of ${usable.length} files done`} aria-valuenow={Math.round(batchProgress * 100)} className="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
+                          <div className="h-full bg-jade" style={{ width: percent(batchProgress) }} />
+                        </div>
                       </div>
                       <button type="button" onClick={() => batchCtrl.current?.abort()} className="rounded-md border border-line px-4 py-2 hover:border-ink">Cancel</button>
                     </>

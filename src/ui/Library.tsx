@@ -1,5 +1,5 @@
 // Recipes and recent jobs: saved in this browser only (IndexedDB), never files, never sent anywhere.
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { addHistory, clearHistory, deleteRecipe, listHistory, listRecipes, pinnedRecipeId, saveRecipe, setPinnedRecipeId } from '../core/db'
 import type { Step } from '../core/ops'
 import { cleanName, describeStep, encodeRecipe, validateStep, type HistoryEntry, type Recipe } from '../core/recipes'
@@ -169,12 +169,22 @@ export function ImportRecipe({ recipe, onAdd, onClose }: { recipe: Pick<Recipe, 
   )
 }
 
-/** A native modal <dialog>: focus trapping, Escape to close and the backdrop come from the browser. */
+/**
+ * A native modal <dialog>: focus trapping, Escape to close and the backdrop come from the browser.
+ * The browser puts focus back only when it closes the dialog itself (Escape); when a button closes it,
+ * the dialog is simply removed, so focus is put back here.
+ */
 export function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   const id = useId()
+  const returnTo = useRef<HTMLElement | null>(null)
+  const open = useCallback((el: HTMLDialogElement) => {
+    if (!el.open) { returnTo.current = document.activeElement as HTMLElement | null; el.showModal() }
+    const target = returnTo.current
+    return () => queueMicrotask(() => target?.focus()) // after removal, when the page is no longer inert
+  }, [])
   return (
     <dialog
-      ref={(el) => { if (el && !el.open) el.showModal() }}
+      ref={open}
       onClose={onClose}
       aria-labelledby={id}
       className={`m-auto ${wide ? 'w-[min(calc(100%-2rem),36rem)]' : 'w-[min(calc(100%-2rem),28rem)]'} rounded-2xl border border-rule bg-paper p-6 text-ink backdrop:bg-ink/40`}

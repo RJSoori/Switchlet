@@ -13,7 +13,7 @@
   font-display: swap;
 }
 
-/* Contrast (WCAG AA) checked for every text/background pair in both themes.
+/* Contrast (WCAG AA) for every text/background pair in both themes is checked by src/contrast.test.ts.
    rule = decorative separators; line = control boundaries (>= 3:1). */
 @theme {
   --font-sans: "Atkinson Next", system-ui, sans-serif;
@@ -36,7 +36,7 @@
     --color-ink: #E3E9E4;
     --color-muted: #9AA9A1;
     --color-rule: #2E3F38;
-    --color-line: #5E7068;
+    --color-line: #61736B;
     --color-jade: #46C493;
     --color-on-jade: #0C1A15;
     --color-danger: #F08A80;

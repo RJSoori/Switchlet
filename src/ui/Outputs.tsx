@@ -17,8 +17,9 @@ const primary = 'inline-flex items-center rounded-lg bg-jade px-5 py-3 font-semi
 export function JobStatus({ job, onCancel, onRetry }: { job: Job; onCancel: () => void; onRetry: () => void }) {
   const eta = job.startedAt !== undefined ? etaSeconds(job.startedAt, job.progress) : null
   if (job.status === 'running') {
+    // Not a live region: the percentage changes many times a second. Starts and finishes are announced by App.
     return (
-      <div className="space-y-2" role="status">
+      <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p>
             {job.stage}… <span className="tabular-nums">{percent(job.progress)}</span>
@@ -26,7 +27,9 @@ export function JobStatus({ job, onCancel, onRetry }: { job: Job; onCancel: () =
           </p>
           <button type="button" onClick={onCancel} className="rounded-md border border-line px-3 py-1 hover:border-ink">Cancel</button>
         </div>
-        <div className="h-1.5 max-w-md overflow-hidden rounded-full bg-rule"><div className="h-full bg-jade transition-[width]" style={{ width: percent(job.progress) }} /></div>
+        <div role="progressbar" aria-label={job.stage} aria-valuenow={Math.round(job.progress * 100)} className="h-1.5 max-w-md overflow-hidden rounded-full bg-rule">
+          <div className="h-full bg-jade transition-[width]" style={{ width: percent(job.progress) }} />
+        </div>
       </div>
     )
   }
@@ -85,6 +88,7 @@ export function Downloads({ output, inputSize, zipName, onDownload }: { output: 
   if (files.length === 1) return <SingleDownload file={files[0]!} inputSize={inputSize} onDownload={onDownload} />
   const total = files.reduce((n, f) => n + f.blob.size, 0)
   const saveZip = async () => {
+    if (zipping) return
     setZipping(true)
     try {
       download(await zipBlobs(files), zipName)
@@ -97,7 +101,7 @@ export function Downloads({ output, inputSize, zipName, onDownload }: { output: 
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <p className="text-2xl tabular-nums">{files.length} files, <span className="text-muted">{formatBytes(total)}</span></p>
-        <button type="button" onClick={saveZip} disabled={zipping} className={`${primary} disabled:opacity-60`} data-primary-download>
+        <button type="button" onClick={saveZip} aria-disabled={zipping} className={`${primary} aria-disabled:opacity-60`} data-primary-download>
           {zipping ? 'Making ZIP…' : 'Download all as ZIP'}
         </button>
       </div>

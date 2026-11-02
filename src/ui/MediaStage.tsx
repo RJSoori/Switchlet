@@ -9,13 +9,15 @@ const RUN_LABEL: Record<string, string> = { 'video.convert': 'Convert video', 'v
 export function RunMedia({ item, step, onRun, stale }: { item: Item; step: Step; onRun: () => void; stale: boolean }) {
   const isAudio = AUDIO_KINDS.includes(item.detected.kind)
   const label = step.op === 'media.audio' ? (isAudio ? 'Convert audio' : 'Save the audio') : RUN_LABEL[step.op] ?? 'Convert'
+  const running = item.status === 'running'
+  // aria-disabled, not disabled: a disabled button drops keyboard focus to the page.
   return (
     <div className="space-y-2">
       <button
         type="button"
-        onClick={onRun}
-        disabled={item.status === 'running'}
-        className={stale ? 'rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110 disabled:opacity-60' : 'rounded-lg border border-line px-5 py-3 font-semibold hover:border-ink disabled:opacity-60'}
+        onClick={() => { if (!running) onRun() }}
+        aria-disabled={running}
+        className={stale ? 'rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110 aria-disabled:opacity-60' : 'rounded-lg border border-line px-5 py-3 font-semibold hover:border-ink aria-disabled:opacity-60'}
       >
         {item.output && !stale ? `${label} again` : label}
       </button>
