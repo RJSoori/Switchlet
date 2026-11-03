@@ -171,7 +171,7 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
     if (!running) return load(incoming)
     setQueued((q) => {
       if (!q) return incoming
-      const all = [...q.items, ...incoming.items]
+      const all = [...q.items, ...incoming.items].slice(0, LIMITS.batchFiles)
       const allKinds = all.map((it) => it.detected.kind)
       return { ...incoming, items: all, op: incoming.op && tasksIn(category, allKinds).includes(incoming.op) ? incoming.op : defaultOp(allKinds) }
     })
