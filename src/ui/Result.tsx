@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Item } from '../App'
+import type { Item } from './Workspace'
 import type { Kind } from '../core/detect'
 import { percent, useObjectUrl } from './hooks'
 import { Downloads, JobStatus, Report } from './Outputs'

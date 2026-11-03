@@ -1,286 +1,139 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { detectFile, formatBytes, limitProblem, LIMITS, type Detected } from './core/detect'
-import { etaSeconds, friendlyError, mediaCapabilities, poolSize, releaseWorkers, runPool, runStep, zipBlobs } from './core/jobs'
+import { CATEGORIES, CATEGORY_OF, categoryInfo, describeGroup, kindFromMime, route, type Category } from './core/categories'
+import { detectFile, formatBytes, limitProblem, LIMITS } from './core/detect'
 import { startNetworkLog } from './core/network'
-import { OPS, defaultOp, makeStep, opsFor, stem, type MediaCaps, type OpId, type Step, type TaskResult } from './core/ops'
-import { BatchList } from './ui/Batch'
-import { download, pasteShortcut, percent } from './ui/hooks'
-import { Options } from './ui/Options'
-import { JobResult } from './ui/Outputs'
-import { PageSorter } from './ui/PageSorter'
-import { Proof, useProofHeadline } from './ui/Proof'
-import { decodeRecipe, describeStep, type Recipe } from './core/recipes'
-import { Dialog, ImportRecipe, LibraryPanel, SaveRecipe, useLibrary } from './ui/Library'
-import { MediaStage, RunMedia } from './ui/MediaStage'
+import { defaultOp, type OpId } from './core/ops'
+import { decodeRecipe, type Recipe } from './core/recipes'
+import { Dialog, ImportRecipe, LibraryPanel, useLibrary } from './ui/Library'
 import { Palette, ShortcutHelp, mod, type Command } from './ui/Palette'
-import { ImageResult } from './ui/Result'
+import { Proof, useProofHeadline } from './ui/Proof'
+import { DropTarget, IDLE, Workspace, type Incoming, type Item, type WorkspaceApi } from './ui/Workspace'
 
-export type Output = Omit<TaskResult, 'files'> & { files: { blob: Blob; name: string }[] }
+const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, video (MP4, MOV, WebM, MKV), audio (MP3, WAV, M4A, OGG, FLAC), Markdown, text, HTML, CSV, JSON and Excel files'
+const UNSUPPORTED = 'unsupported'
 
-export interface Job {
-  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
-  progress: number
-  stage: string
-  startedAt?: number
-  output?: Output
-  error?: string
+type Status = { count: number; running: boolean }
+
+/** What the notice says about files that weren't opened: each one named, with what to do instead. */
+function rejectionNotice(files: { item: Item; problem: string | null }[]): string {
+  const names = (list: typeof files) => list.map((f) => `“${f.item.file.name}”`)
+  const unsupported = files.filter((f) => f.problem === UNSUPPORTED)
+  const parts = files.filter((f) => f.problem !== UNSUPPORTED).map((f) => `${names([f])[0]} wasn’t opened. ${f.problem}`)
+  if (unsupported.length) {
+    const shown = names(unsupported.slice(0, 3)).join(', ') + (unsupported.length > 3 ? ` and ${unsupported.length - 3} more` : '')
+    parts.unshift(`${shown} ${unsupported.length === 1 ? 'isn’t a kind of file' : 'aren’t kinds of file'} Switchlet can open. It works with ${SUPPORTED}.`)
+  }
+  return parts.join(' ')
 }
-
-export interface Item extends Job {
-  id: number
-  file: File
-  detected: Detected
-  problem: string | null
-}
-
-const IDLE: Job = { status: 'idle', progress: 0, stage: '' }
-const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, video (MP4, MOV, WebM, MKV), audio (MP3, WAV, M4A, OGG, FLAC), Markdown, HTML, CSV, JSON and Excel files'
-const unsupported = (d: Detected) => `${d.kind === 'unknown' ? 'This kind of file' : `${d.label}s`} can’t be converted yet. Switchlet works with ${SUPPORTED}.`
-/** Tasks whose output is the same kind of file, where "X kB to Y kB, 40% smaller" means something. */
-const SAME_KIND = new Set<OpId>(['pdf.compress', 'pdf.scrub', 'pdf.pages', 'video.convert'])
-const MEDIA_OPS = new Set<OpId>(['video.convert', 'video.trim', 'video.gif', 'media.audio'])
-const VERB: Partial<Record<OpId, string>> = { 'image.scrub': 'Clean', 'pdf.scrub': 'Clean', 'pdf.split': 'Split', 'pdf.compress': 'Shrink' }
-
-const toOutput = (r: TaskResult): Output => ({
-  ...r,
-  files: r.files.map((f) => ({ name: f.name, blob: new Blob([f.data], { type: f.type }) })),
-})
 
 let nextId = 1
+let nextNonce = 1
 startNetworkLog()
 
 export function App() {
-  const [items, setItems] = useState<Item[]>([])
-  const [step, setStep] = useState<Step | null>(null)
-  const [combo, setCombo] = useState<Job>(IDLE)
+  const [category, setCategory] = useState<Category | null>(null)
+  const categoryRef = useRef(category)
+  categoryRef.current = category
+  const [incoming, setIncoming] = useState<Partial<Record<Category, Incoming>>>({})
+  /** Groups from a mixed drop that belong on other screens, waiting behind a chip. */
+  const [parked, setParked] = useState<Partial<Record<Category, Item[]>>>({})
+  const [status, setStatus] = useState<Partial<Record<Category, Status>>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [hint, setHint] = useState<string | null>(null)
+  const dragDepth = useRef(0)
   const [announcement, setAnnouncement] = useState('')
-  const [batch, setBatch] = useState<{ running: boolean; startedAt: number } | null>(null)
-  const [runNonce, setRunNonce] = useState(0)
-  const [caps, setCaps] = useState<MediaCaps>()
-  /** Settings of the last on-demand (audio/video) run, to tell when the result no longer matches them. */
-  const [ranKey, setRanKey] = useState<string | null>(null)
-  const session = useRef(0)
-  const batchCtrl = useRef<AbortController | null>(null)
-  const singleCtrl = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null)
-  /** After files are added, focus moves to their heading (the button that was focused is gone). */
-  const heading = useRef<HTMLHeadingElement>(null)
-  const [landed, setLanded] = useState(0)
-  useEffect(() => { if (landed) heading.current?.focus() }, [landed])
+  const apiRef = useRef<WorkspaceApi | null>(null)
   const proofHeadline = useProofHeadline()
   const library = useLibrary()
-  const pinnedRef = useRef<Recipe | null>(null)
-  pinnedRef.current = library.pinned
-  const [autoRun, setAutoRun] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [importing, setImporting] = useState<Pick<Recipe, 'name' | 'steps'> | null>(null)
   const [shared, setShared] = useState<File[] | null>(null)
 
-  const patch = useCallback((id: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...p } : it))), [])
+  const announce = useCallback((message: string) => setAnnouncement(message), [])
+  const onStatus = useCallback((c: Category, s: Status) => setStatus((all) => ({ ...all, [c]: s })), [])
 
-  const clear = useCallback(() => {
-    batchCtrl.current?.abort()
-    singleCtrl.current?.abort()
-    releaseWorkers() // frees decoded pixels and WASM memory
-    setItems((old) => { old.forEach((it) => it.output?.preview?.close()); return [] })
-    setStep(null)
-    setCombo(IDLE)
-    setBatch(null)
-    setNotice(null)
-    setRanKey(null)
-  }, [])
+  const deliver = (c: Category, items: Item[], op: OpId | null, note: string) => {
+    setIncoming((all) => ({ ...all, [c]: { nonce: nextNonce++, items, op, note } }))
+    setParked((p) => { const { [c]: _, ...rest } = p; return rest })
+    setCategory(c)
+  }
 
-  const addFiles = useCallback(async (files: File[]) => {
+  /**
+   * The one way files come in: drop, paste, the file picker and the share target all land here. Types come from
+   * the files' bytes; the router picks the screen (see core/categories.ts). Unsupported files open nothing.
+   */
+  const routeFiles = async (files: File[]) => {
     if (!files.length) return
-    clear()
-    const current = ++session.current
     const accepted = files.slice(0, LIMITS.batchFiles)
-    const next = await Promise.all(
-      accepted.map(async (file): Promise<Item> => {
-        const detected = await detectFile(file)
-        const problem = limitProblem(detected, file.size) ?? (opsFor([detected.kind]).length ? null : unsupported(detected))
-        return { ...IDLE, id: nextId++, file, detected, problem }
-      }),
-    )
-    if (current !== session.current) return // a newer drop replaced this one
-    const kinds = next.filter((it) => !it.problem).map((it) => it.detected.kind)
-    const op = defaultOp(kinds)
-    // A recipe that's switched on is used whenever it fits the dropped files, and runs straight away.
-    const recipe = pinnedRef.current
-    const recipeStep = recipe && opsFor(kinds).includes(recipe.steps[0]!.op) ? recipe.steps[0]! : null
-    setItems(next)
-    setStep(recipeStep ?? (op ? makeStep(op, kinds[0]!) : null))
-    if (recipeStep) setAutoRun(true)
-    setLanded(current)
-    const mixed = kinds.length > 1 && !opsFor(kinds).length
-    const note =
-      mixed ? 'These files are different kinds. Switchlet works on one kind at a time: drop just the photos, just the PDFs, or just the documents.'
-      : files.length > accepted.length ? `Only the first ${LIMITS.batchFiles} files were added.`
-      : recipe && !recipeStep && kinds.length ? `Your recipe “${recipe.name}” doesn’t fit these files, so nothing ran on its own. Choose a task below.`
-      : null
-    setNotice(note)
-    setAnnouncement(`${next.length === 1 ? `Added ${next[0]!.file.name}.` : `Added ${next.length} files, ${kinds.length} can be converted.`}${note ? ` ${note}` : ''}`)
-  }, [clear])
+    const found = await Promise.all(accepted.map(async (file) => {
+      const detected = await detectFile(file)
+      const problem = limitProblem(detected, file.size) ?? (CATEGORY_OF[detected.kind] ? null : UNSUPPORTED)
+      return { item: { ...IDLE, id: nextId++, file, detected } as Item, problem }
+    }))
+    const current = categoryRef.current
+    const r = route(found.map((f) => ({ kind: f.item.detected.kind, problem: f.problem })), current)
+    const pickItems = (take: number[]) => take.map((i) => found[i]!.item)
+    const problems = [
+      r.rejected.length ? rejectionNotice(r.rejected.map((i) => found[i]!)) : '',
+      files.length > accepted.length ? `Only the first ${LIMITS.batchFiles} files were added.` : '',
+    ].filter(Boolean).join(' ')
+    setNotice(problems || null)
+    if (!r.open) return announce(problems)
+    const others = r.others.map((g) => describeGroup(g.category, g.take.length))
+    if (r.others.length) setParked((p) => ({ ...p, ...Object.fromEntries(r.others.map((g) => [g.category, pickItems(g.take)])) }))
+    const note = [
+      r.open !== current && `Opened in ${categoryInfo(r.open).label}.`,
+      others.length && `Also dropped: ${others.join(', ')}, ready to open from the file strip.`,
+      problems,
+    ].filter(Boolean).join(' ')
+    deliver(r.open, pickItems(r.take), r.op, note)
+  }
+  const routeRef = useRef(routeFiles)
+  routeRef.current = routeFiles
 
-  const convertItem = useCallback(async (item: Item, s: Step, signal: AbortSignal, quietCancel: boolean) => {
-    patch(item.id, { status: 'running', progress: 0, stage: 'Starting', error: undefined, startedAt: performance.now() })
-    try {
-      const r = await runStep(s, [item.file], [item.detected.kind], {
-        signal,
-        onProgress: (progress, stage) => { if (!signal.aborted) patch(item.id, { progress, stage }) },
-      })
-      if (signal.aborted) { r.preview?.close(); return }
-      const output = toOutput(r)
-      setItems((list) => list.map((it) => {
-        if (it.id !== item.id) return it
-        it.output?.preview?.close()
-        return { ...it, status: 'done', progress: 1, output }
-      }))
-      return output
-    } catch (e) {
-      const err = friendlyError(e)
-      if (err.kind === 'cancelled') { if (!quietCancel) patch(item.id, { status: 'cancelled' }) }
-      else patch(item.id, { status: 'error', error: err.message })
-    }
-  }, [patch])
-
-  const usable = items.filter((it) => !it.problem)
-  const ops = opsFor(usable.map((it) => it.detected.kind))
-  const single = items.length === 1 && usable.length === 1 ? usable[0]! : null
-  const combines = !!step && !!OPS[step.op].combines && usable.length > 1
-  const stepKey = JSON.stringify(step)
-
-  // Audio/video: ask the worker once which formats this browser can create, to grey out the rest.
-  const hasMedia = usable.some((it) => it.detected.group === 'media')
-  useEffect(() => {
-    if (hasMedia && !caps) mediaCapabilities().then(setCaps, () => {})
-  }, [hasMedia, caps])
-
-  // Audio/video on a single file: runs when the user presses the button (encoding is heavy).
-  const runSingle = () => {
-    if (!single || !step) return
-    singleCtrl.current?.abort()
-    const ctrl = new AbortController()
-    singleCtrl.current = ctrl
-    setRanKey(stepKey)
-    setAnnouncement('Started. Press Escape to cancel.')
-    void convertItem(single, step, ctrl.signal, false).then((out) => {
-      if (out) setAnnouncement(out.files[0] ? `${out.files[0].name} is ready, ${formatBytes(out.files[0].blob.size)}.` : out.note ?? 'Done.')
-    })
+  const openParked = (c: Category) => {
+    const items = parked[c]
+    if (!items?.length) return
+    deliver(c, items, defaultOp(items.map((it) => it.detected.kind)), c !== category ? `Opened in ${categoryInfo(c).label}.` : '')
   }
 
-  // Single file: run live as settings change (debounced); a newer run cancels the older one.
+  // Drop files anywhere, on any screen, or paste them. (Dragging page thumbnails carries no files, so it's ignored here.)
   useEffect(() => {
-    if (!single || !step) return
-    if (OPS[step.op].manual) return
-    if (step.op === 'pdf.pages' && !step.settings.order) return // nothing to save until a page moves
-    const ctrl = new AbortController()
-    singleCtrl.current = ctrl
-    const timer = setTimeout(async () => {
-      const out = await convertItem(single, step, ctrl.signal, true)
-      if (out) setAnnouncement(out.files.length === 1 ? `${out.files[0]!.name} is ready, ${formatBytes(out.files[0]!.blob.size)}.` : out.files.length ? `${out.files.length} files are ready.` : out.note ?? 'Done.')
-    }, 250)
-    return () => { clearTimeout(timer); ctrl.abort() }
-  }, [single?.id, stepKey, runNonce, convertItem]) // rerun only when the file, settings or retry change
-
-  // Several files: changing the task or its settings invalidates earlier results.
-  useEffect(() => {
-    if (items.length < 2) return
-    setItems((list) => list.map((it) => (it.output || it.status !== 'idle' ? { ...it, ...IDLE, output: undefined, error: undefined } : it)))
-    setCombo(IDLE)
-    setBatch(null)
-  }, [stepKey])
-
-  const runAll = async () => {
-    if (!step) return
-    const ctrl = new AbortController()
-    batchCtrl.current = ctrl
-    if (combines) {
-      setCombo({ ...IDLE, status: 'running', stage: 'Starting', startedAt: performance.now() })
-      try {
-        const r = await runStep(step, usable.map((it) => it.file), usable.map((it) => it.detected.kind), {
-          signal: ctrl.signal,
-          onProgress: (progress, stage) => setCombo((c) => ({ ...c, progress, stage })),
-        })
-        setCombo({ ...IDLE, status: 'done', progress: 1, output: toOutput(r) })
-        setAnnouncement(`${r.files[0]?.name ?? 'Your file'} is ready.`)
-      } catch (e) {
-        const err = friendlyError(e)
-        setCombo({ ...IDLE, status: err.kind === 'cancelled' ? 'cancelled' : 'error', error: err.message })
-      }
-      releaseWorkers()
-      return
-    }
-    setBatch({ running: true, startedAt: performance.now() })
-    setAnnouncement(`Working on ${usable.length} files.`)
-    // AVIF and PNG encoders already use every core; main-thread tasks share one thread. One at a time for those.
-    const oneAtATime = !!OPS[step.op].main || !!OPS[step.op].manual || (step.op === 'image.convert' && (step.settings.format === 'avif' || step.settings.format === 'png'))
-    await runPool(usable, oneAtATime ? 1 : poolSize(), (it) => convertItem(it, step, ctrl.signal, false).then(() => {}))
-    releaseWorkers()
-    setBatch((b) => b && { ...b, running: false })
-    setAnnouncement(ctrl.signal.aborted ? 'Cancelled.' : 'All files are done.')
-  }
-
-  // A switched-on recipe runs as soon as its files are in (single photos, PDFs and documents already run live).
-  useEffect(() => {
-    if (!autoRun || !step) return
-    setAutoRun(false)
-    if (single && OPS[step.op].manual) runSingle()
-    else if (!single && usable.length > 1) void runAll()
-  }, [autoRun, stepKey])
-
-  /** History records what was downloaded: file names and settings, never contents. */
-  const recordDownload = (sources: File[]) => {
-    if (step) void library.record({ names: sources.slice(0, 3).map((f) => f.name), count: sources.length, task: describeStep(step), outcome: 'done' })
-  }
-
-  const allFiles = items.flatMap((it) => it.output?.files ?? [])
-  const downloadZip = async () => {
-    download(await zipBlobs(allFiles), `switchlet-${allFiles.length}-files.zip`)
-    recordDownload(items.filter((it) => it.output).map((it) => it.file))
-    releaseWorkers()
-  }
-
-  const moveItem = (from: number, to: number) => {
-    if (to < 0 || to >= items.length) return
-    setItems((list) => { const next = [...list]; const [it] = next.splice(from, 1); next.splice(to, 0, it!); return next })
-    setCombo(IDLE)
-  }
-
-  // Drop files anywhere on the page, or paste them. (Dragging page thumbnails carries no files, so it's ignored here.)
-  useEffect(() => {
-    let depth = 0
     const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files') ?? false
-    const enter = (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; setDragging(true) }
+    // While dragging, browsers show only MIME types, not bytes: enough for a hint. The drop itself is routed by content.
+    const hintFor = (dt: DataTransfer | null) => {
+      const kinds = [...(dt?.items ?? [])].filter((i) => i.kind === 'file').map((i) => kindFromMime(i.type))
+      if (!kinds.length || kinds.some((k) => k === null)) return null
+      const r = route(kinds.map((kind) => ({ kind: kind!, problem: null })), categoryRef.current)
+      return r.open ? `Drop to open in ${categoryInfo(r.open).label}` : null
+    }
+    const hide = () => { dragDepth.current = 0; setDragging(false) }
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      if (dragDepth.current++ === 0) setHint(hintFor(e.dataTransfer))
+      setDragging(true)
+    }
     const over = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault() }
-    const leave = (e: DragEvent) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false) } }
+    const leave = (e: DragEvent) => { if (hasFiles(e) && --dragDepth.current <= 0) hide() }
     const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return
       e.preventDefault()
-      depth = 0
-      setDragging(false)
-      void addFiles([...(e.dataTransfer?.files ?? [])])
+      hide()
+      void routeRef.current([...(e.dataTransfer?.files ?? [])])
     }
     const paste = (e: ClipboardEvent) => {
       const files = [...(e.clipboardData?.files ?? [])]
-      if (files.length) { e.preventDefault(); void addFiles(files) }
+      if (files.length) { e.preventDefault(); void routeRef.current(files) }
     }
-    window.addEventListener('dragenter', enter)
-    window.addEventListener('dragover', over)
-    window.addEventListener('dragleave', leave)
-    window.addEventListener('drop', drop)
-    window.addEventListener('paste', paste)
-    return () => {
-      window.removeEventListener('dragenter', enter)
-      window.removeEventListener('dragover', over)
-      window.removeEventListener('dragleave', leave)
-      window.removeEventListener('drop', drop)
-      window.removeEventListener('paste', paste)
-    }
-  }, [addFiles])
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && dragDepth.current) { e.stopImmediatePropagation(); hide() } }
+    const listeners: [string, (e: never) => void][] = [['dragenter', enter], ['dragover', over], ['dragleave', leave], ['drop', drop], ['paste', paste], ['keydown', escape]]
+    for (const [type, fn] of listeners) window.addEventListener(type, fn as EventListener, type === 'keydown')
+    return () => { for (const [type, fn] of listeners) window.removeEventListener(type, fn as EventListener, type === 'keydown') }
+  }, [])
 
   // A recipe link (#recipe=…): ask before adding it. The fragment never reaches a server.
   useEffect(() => {
@@ -320,34 +173,7 @@ export function App() {
   }, [])
 
   const pick = () => picker.current?.click()
-  const kind = usable[0]?.detected.kind ?? 'unknown'
-  const doneCount = items.filter((it) => it.status === 'done').length
-  const batchProgress = usable.length ? usable.reduce((n, it) => n + (it.status === 'done' ? 1 : it.status === 'running' ? it.progress : 0), 0) / usable.length : 0
-  const batchEta = batch?.running ? etaSeconds(batch.startedAt, batchProgress) : null
-  const options = (
-    <Options
-      ops={ops}
-      step={step}
-      kind={kind}
-      onChange={setStep}
-      fileCount={usable.length}
-      caps={caps}
-      sheets={single?.output?.sheets}
-      dims={single?.detected.width ? { width: single.detected.width, height: single.detected.height! } : single?.output?.width ? { width: single.output.width, height: single.output.height! } : undefined}
-    />
-  )
-  const cancelSingle = () => { singleCtrl.current?.abort(); if (single) patch(single.id, { status: 'cancelled' }) }
-  const retrySingle = () => setRunNonce((n) => n + 1)
-  const running = items.some((it) => it.status === 'running') || combo.status === 'running'
-  const cancelRunning = () => {
-    if (batch?.running || combo.status === 'running') batchCtrl.current?.abort()
-    if (single?.status === 'running') cancelSingle()
-  }
-  const runPrimary = () => {
-    if (!step || running) return
-    if (single) { if (OPS[step.op].manual) runSingle() } else if (usable.length > 1) void runAll()
-  }
-  const primaryDownload = () => document.querySelector<HTMLElement>('[data-primary-download]')?.click()
+  const api = category ? apiRef.current : null
 
   // Keyboard: Ctrl/Cmd+K palette, Ctrl/Cmd+O open; plain keys only when not typing in a field or using a dialog.
   useEffect(() => {
@@ -362,25 +188,21 @@ export function App() {
       }
       const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
       if (cmd || e.altKey || typing || document.querySelector('dialog[open]')) return
+      const active = categoryRef.current ? apiRef.current : null
       if (e.key === '?') { e.preventDefault(); setHelpOpen(true) }
-      else if (key === 'd') primaryDownload()
-      else if (e.key === 'Escape') cancelRunning()
-      else if (e.key === 'Enter' && (e.target === document.body || e.target === heading.current)) runPrimary()
+      else if (key === 'd') active?.primaryDownload()
+      else if (e.key === 'Escape') active?.cancelRunning()
+      else if (e.key === 'Enter' && (e.target === document.body || (e.target instanceof Element && e.target.matches('[data-heading]')))) active?.runPrimary()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+  }, [])
 
-  const runLabel = !step ? '' : step.op === 'pdf.merge' ? `Merge ${usable.length} PDFs` : step.op === 'image.toPdf' ? `Make a PDF from ${usable.length} images` : `${VERB[step.op] ?? 'Convert'} ${usable.length} files`
-
-  const hasResult = !!(single?.output?.files.length || allFiles.length || combo.output?.files.length)
   const commands: Command[] = [
     { id: 'open', label: 'Choose files', keys: `${mod} O`, run: pick },
-    ...(items.length ? [{ id: 'clear', label: 'Start over', run: clear }] : []),
-    ...(step && !running && (single ? OPS[step.op].manual : usable.length > 1) ? [{ id: 'run', label: single ? 'Run the task' : runLabel, keys: 'Enter', run: runPrimary }] : []),
-    ...(hasResult ? [{ id: 'download', label: 'Download the result', keys: 'D', run: primaryDownload }] : []),
-    ...(running ? [{ id: 'cancel', label: 'Cancel', keys: 'Esc', run: cancelRunning }] : []),
-    ...ops.map((op) => ({ id: `task-${op}`, label: `Task: ${OPS[op].label}`, run: () => setStep(makeStep(op, kind)) })),
+    ...(api?.commands ?? []),
+    ...CATEGORIES.filter((c) => c.id !== category).map((c) => ({ id: `go-${c.id}`, label: `Go to ${c.label}`, run: () => setCategory(c.id) })),
+    ...(category ? [{ id: 'home', label: 'Go to the start page', run: () => setCategory(null) }] : []),
     ...library.recipes.map((r) => (library.pinned?.id === r.id
       ? { id: `unpin-${r.id}`, label: `Stop using recipe “${r.name}”`, run: () => library.pin(null) }
       : { id: `pin-${r.id}`, label: `Use recipe “${r.name}” for every drop`, run: () => library.pin(r.id) })),
@@ -388,10 +210,23 @@ export function App() {
     { id: 'help', label: 'Keyboard shortcuts', keys: '?', run: () => setHelpOpen(true) },
   ]
 
+  const parkedGroups = (Object.entries(parked) as [Category, Item[]][]).filter(([, items]) => items.length)
+  const chips = parkedGroups.length > 0 && parkedGroups.map(([c, items]) => (
+    <button
+      key={c}
+      type="button"
+      onClick={() => openParked(c)}
+      aria-label={`Open ${describeGroup(c, items.length)} in ${categoryInfo(c).label}`}
+      className="rounded-full border border-line bg-field px-3 py-1 hover:border-jade"
+    >
+      Open {describeGroup(c, items.length)}
+    </button>
+  ))
+
   return (
     <div className="min-h-dvh">
-      <header className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-8">
-        <button type="button" onClick={clear} className="flex items-center gap-2.5 text-lg font-semibold tracking-tight" aria-label="Switchlet, start over">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-8">
+        <button type="button" onClick={() => setCategory(null)} className="flex items-center gap-2.5 text-lg font-semibold tracking-tight" aria-label="Switchlet, start page">
           <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true"><rect width="32" height="32" rx="7" className="fill-jade" /><path d="M4 21h7M23.4 21H28M11 21l9-9" className="stroke-on-jade" strokeWidth="2.6" strokeLinecap="round" fill="none" /><circle cx="11" cy="21" r="2.2" className="fill-on-jade" /><circle cx="21" cy="21" r="2.4" className="stroke-on-jade" strokeWidth="1.4" fill="none" /></svg>
           Switchlet
         </button>
@@ -405,162 +240,83 @@ export function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 pb-20 sm:px-8">
-        {library.pinned && (
-          <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-jade px-4 py-2 text-sm">
-            <span>Recipe in use: <strong className="font-semibold">{library.pinned.name}</strong>. Files you drop are converted with it.</span>
-            <button type="button" onClick={() => library.pin(null)} className="text-jade underline underline-offset-4">Stop using it</button>
-          </p>
-        )}
-        {items.length === 0 ? (
-          <section className="pt-8 sm:pt-14">
-            <h1 className="max-w-[15ch] text-[clamp(2.6rem,7.5vw,5.25rem)] leading-[1.02] font-light tracking-[-0.025em]">Convert files without uploading them.</h1>
-            <p className="mt-6 max-w-[54ch] text-lg leading-relaxed text-muted">
-              Switchlet converts, shrinks and cleans up photos, PDFs, videos and documents right here in your browser. Nothing you add is sent anywhere, and the counter at the bottom of this page shows it.
+      <div className="mx-auto max-w-6xl px-4 sm:px-8 lg:grid lg:grid-cols-[11.5rem_minmax(0,1fr)] lg:gap-x-12">
+        <nav aria-label="Screens" className="lg:pt-6">
+          <ul className="-mx-4 flex [scrollbar-width:none] overflow-x-auto border-b border-rule px-4 lg:sticky lg:top-6 lg:mx-0 lg:flex-col lg:gap-0.5 lg:border-b-0 lg:px-0">
+            {CATEGORIES.map((c) => {
+              const on = c.id === category
+              const s = status[c.id]
+              return (
+                <li key={c.id} className="shrink-0">
+                  <button
+                    type="button"
+                    aria-current={on ? 'page' : undefined}
+                    onClick={() => setCategory(c.id)}
+                    className={`flex w-full items-center gap-2.5 border-b-[3px] px-3 py-2.5 text-left whitespace-nowrap transition-colors lg:rounded-r-md lg:border-b-0 lg:border-l-[3px] ${on ? 'border-jade font-semibold text-ink lg:bg-field' : 'border-transparent text-muted hover:text-ink'}`}
+                  >
+                    <span className="lg:flex-1">{c.label}</span>
+                    {s?.running && <span className="h-2 w-2 rounded-full bg-jade" aria-hidden="true" />}
+                    {!!s?.count && <span className="text-sm text-muted tabular-nums" aria-hidden="true">{s.count}</span>}
+                    {(s?.running || !!s?.count) && <span className="sr-only">, {s.running ? 'working' : `${s.count} ${s.count === 1 ? 'file' : 'files'}`}</span>}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+
+        <main className="min-w-0 pb-20">
+          {library.pinned && (
+            <p className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-jade px-4 py-2 text-sm">
+              <span>Recipe in use: <strong className="font-semibold">{library.pinned.name}</strong>. Files you drop are converted with it.</span>
+              <button type="button" onClick={() => library.pin(null)} className="text-jade underline underline-offset-4">Stop using it</button>
             </p>
-            <button
-              type="button"
-              onClick={pick}
-              className="mt-10 grid w-full gap-2 rounded-2xl border-[1.5px] border-line bg-field px-6 py-12 text-left transition-colors hover:border-jade sm:px-10 sm:py-16"
-            >
-              <span className="text-2xl font-medium sm:text-3xl">Drop files anywhere on this page</span>
-              <span className="text-muted">
-                or <span className="font-medium text-jade underline underline-offset-4">choose files</span>, or paste with {pasteShortcut}
-              </span>
-              <span className="mt-4 max-w-[60ch] text-sm text-muted">Photos, PDFs, video, audio, Markdown, HTML, CSV, JSON and Excel. Up to {LIMITS.batchFiles} at a time.</span>
-            </button>
-            {notice && <p className="mt-6 max-w-[70ch] text-muted" role="status">{notice}</p>}
-            <LibraryPanel library={library} />
-          </section>
-        ) : (
-          <section className="pt-6" aria-label="Your files">
-            <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-rule pb-4">
-              <h1 ref={heading} tabIndex={-1} className="min-w-0 text-2xl font-medium focus:outline-none">
-                {items.length === 1 ? (
-                  <>
-                    <span className="block truncate">{items[0]!.file.name}</span>
-                    <span className="block text-base font-normal text-muted">
-                      {items[0]!.detected.label}
-                      {items[0]!.detected.width ? `, ${items[0]!.detected.width} × ${items[0]!.detected.height}` : ''}, {formatBytes(items[0]!.file.size)}
-                    </span>
-                  </>
-                ) : (
-                  `${items.length} files`
-                )}
-              </h1>
-              <button type="button" onClick={pick} className="rounded-md border border-line px-3 py-1.5 hover:border-ink">Choose other files</button>
+          )}
+          {notice && (
+            <div role="status" className="mt-6 flex items-start justify-between gap-4 rounded-lg border border-line bg-field px-4 py-3">
+              <p className="max-w-[75ch]">{notice}</p>
+              <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-sm text-muted underline underline-offset-4 hover:text-ink">Dismiss</button>
             </div>
-            {notice && <p className="mt-4 max-w-[70ch] text-muted">{notice}</p>}
+          )}
 
-            {single && !step ? (
-              <div className="mt-8 max-w-3xl">{options}</div>
-            ) : single && step && MEDIA_OPS.has(step.op) ? (
-              // Phones read top to bottom: player, options, then the button and result. Desktop keeps options at the side.
-              <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-x-10">
-                <div className="min-w-0 lg:col-start-1">
-                  <MediaStage
-                    item={single}
-                    step={step}
-                    onClip={(clip) => {
-                      if (step.op === 'video.trim') setStep({ ...step, settings: clip })
-                      else if (step.op === 'video.gif') setStep({ ...step, settings: { ...step.settings, ...clip } })
-                    }}
-                  />
-                </div>
-                <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">{options}</div>
-                <div className="min-w-0 space-y-6 lg:col-start-1">
-                  <RunMedia item={single} step={step} stale={ranKey !== stepKey} onRun={runSingle} />
-                  <JobResult
-                    job={single}
-                    inputSize={SAME_KIND.has(step.op) ? single.file.size : undefined}
-                    zipName={`${stem(single.file.name)}.zip`}
-                    onCancel={cancelSingle}
-                    onRetry={runSingle}
-                    onDownload={() => recordDownload([single.file])}
-                  />
-                  {single.output && <SaveRecipe key={stepKey} step={step} library={library} />}
-                </div>
-              </div>
-            ) : single && step ? (
-              <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-                <div className="min-w-0 space-y-8">
-                  {step.op === 'image.convert' || step.op === 'image.scrub' ? (
-                    <ImageResult item={single} onCancel={cancelSingle} onRetry={retrySingle} onDownload={() => recordDownload([single.file])} />
-                  ) : (
-                    <>
-                      {step.op === 'pdf.pages' && (
-                        <PageSorter file={single.file} order={step.settings.order} onChange={(order) => setStep({ ...step, settings: { order } })} />
-                      )}
-                      <JobResult
-                        job={single}
-                        inputSize={SAME_KIND.has(step.op) ? single.file.size : undefined}
-                        zipName={`${stem(single.file.name)}.zip`}
-                        onCancel={cancelSingle}
-                        onRetry={retrySingle}
-                        onDownload={() => recordDownload([single.file])}
-                      />
-                    </>
-                  )}
-                  {single.output && <SaveRecipe key={stepKey} step={step} library={library} />}
-                </div>
-                {options}
-              </div>
-            ) : items.length === 1 ? (
-              <div role="alert" className="mt-8 max-w-[60ch] space-y-4">
-                <p className="text-lg">{items[0]!.problem}</p>
-                <button type="button" onClick={pick} className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade">Choose another file</button>
-              </div>
-            ) : (
-              <div className="mt-8 space-y-8">
-                {ops.length > 0 && options}
-                <div className="flex flex-wrap items-center gap-4">
-                  {batch?.running ? (
-                    <>
-                      <div className="min-w-48 flex-1">
-                        <p>
-                          {doneCount} of {usable.length} done, <span className="tabular-nums">{percent(batchProgress)}</span>
-                          {batchEta !== null && <span className="text-muted">, about {batchEta} s left</span>}
-                        </p>
-                        <div role="progressbar" aria-label={`${doneCount} of ${usable.length} files done`} aria-valuenow={Math.round(batchProgress * 100)} className="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
-                          <div className="h-full bg-jade" style={{ width: percent(batchProgress) }} />
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => batchCtrl.current?.abort()} className="rounded-md border border-line px-4 py-2 hover:border-ink">Cancel</button>
-                    </>
-                  ) : (
-                    step && ops.length > 0 && combo.status !== 'running' && (
-                      <button
-                        type="button"
-                        onClick={runAll}
-                        className={doneCount || combo.output ? 'rounded-lg border border-line px-5 py-3 font-semibold hover:border-ink' : 'rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110'}
-                      >
-                        {doneCount || combo.output ? `${runLabel} again` : runLabel}
-                      </button>
-                    )
-                  )}
-                  {!combines && !batch?.running && allFiles.length > 1 && (
-                    <button type="button" onClick={downloadZip} data-primary-download className="rounded-lg bg-jade px-5 py-3 font-semibold text-on-jade hover:brightness-110">
-                      Download all as ZIP ({formatBytes(allFiles.reduce((n, f) => n + f.blob.size, 0))})
-                    </button>
-                  )}
-                </div>
-                {combines && combo.status !== 'idle' && (
-                  <JobResult job={combo} zipName="switchlet.zip" onCancel={() => batchCtrl.current?.abort()} onRetry={runAll} onDownload={() => recordDownload(usable.map((it) => it.file))} />
-                )}
-                {step && (doneCount > 0 || combo.output) && <SaveRecipe key={stepKey} step={step} library={library} />}
-                <BatchList items={items} reorderable={combines} onMove={moveItem} onDownload={(it) => recordDownload([it.file])} />
-              </div>
-            )}
-          </section>
-        )}
+          {category === null && (
+            <section className="pt-8 sm:pt-14">
+              <h1 className="max-w-[15ch] text-[clamp(2.6rem,7.5vw,5.25rem)] leading-[1.02] font-light tracking-[-0.025em]">Convert files without uploading them.</h1>
+              <p className="mt-6 max-w-[54ch] text-lg leading-relaxed text-muted">
+                Switchlet converts, shrinks and cleans up photos, PDFs, videos and documents right here in your browser. Nothing you add is sent anywhere, and the counter at the bottom of this page shows it.
+              </p>
+              {chips && <div className="mt-6 flex flex-wrap gap-2 text-sm">{chips}</div>}
+              <DropTarget what="files" detail={`Photos, PDFs, video, audio, Markdown, HTML, CSV, JSON and Excel. Up to ${LIMITS.batchFiles} at a time.`} onPick={pick} />
+              <LibraryPanel library={library} />
+            </section>
+          )}
+          {CATEGORIES.map((c) => (
+            <Workspace
+              key={c.id}
+              category={c.id}
+              active={category === c.id}
+              incoming={incoming[c.id]}
+              library={library}
+              strip={chips}
+              onPick={pick}
+              announce={announce}
+              apiRef={apiRef}
+              onStatus={onStatus}
+            />
+          ))}
 
-        <Proof />
-      </main>
+          <Proof />
+        </main>
+      </div>
 
-      <input ref={picker} type="file" multiple hidden onChange={(e) => { void addFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
+      <input ref={picker} type="file" multiple hidden onChange={(e) => { void routeFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
       {dragging && (
-        <div className="pointer-events-none fixed inset-3 z-50 grid place-items-center rounded-3xl border-2 border-jade bg-paper/90">
-          <p className="text-3xl font-light">Drop to convert on this device</p>
+        // Visual only: nothing in it can take focus, pointer events pass through, and Esc or leaving the window hides it.
+        <div aria-hidden="true" className="pointer-events-none fixed inset-3 z-50 grid place-items-center rounded-3xl border-2 border-jade bg-paper/90">
+          <div className="px-6 text-center">
+            <p className="text-3xl font-light">{hint ?? 'Drop to open'}</p>
+            <p className="mt-3 text-muted">Files stay on this device.</p>
+          </div>
         </div>
       )}
       <div aria-live="polite" className="sr-only">{announcement}</div>
@@ -574,7 +330,7 @@ export function App() {
           {shared.length > 10 && <p className="text-sm text-muted">And {shared.length - 10} more.</p>}
           <p className="mt-3 text-sm text-muted">Open them only if you just shared them with Switchlet. Websites can send files here too.</p>
           <div className="mt-6 flex gap-2">
-            <button type="button" onClick={() => { const files = shared; setShared(null); void addFiles(files) }} className="rounded-lg bg-jade px-4 py-2 font-semibold text-on-jade">Open</button>
+            <button type="button" onClick={() => { const files = shared; setShared(null); void routeFiles(files) }} className="rounded-lg bg-jade px-4 py-2 font-semibold text-on-jade">Open</button>
             <button type="button" onClick={() => setShared(null)} className="rounded-lg border border-line px-4 py-2">Discard</button>
           </div>
         </Dialog>

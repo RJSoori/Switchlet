@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import type { Item } from '../App'
+import type { Item } from './Workspace'
 import { AUDIO_KINDS, formatTime, type Clip, type Step } from '../core/ops'
 import { useObjectUrl } from './hooks'
 

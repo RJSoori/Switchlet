@@ -1,4 +1,4 @@
-import type { Item } from '../App'
+import type { Item } from './Workspace'
 import { formatBytes } from '../core/detect'
 import { percent, useObjectUrl } from './hooks'
 import { sizeChange } from './Outputs'
@@ -22,7 +22,6 @@ function Row({ item, index, onMove, reorderable, total, onDownload }: { item: It
         </div>
       </div>
       <div className="text-sm sm:text-right">
-        {item.problem && <p className="max-w-md text-danger">{item.problem}</p>}
         {item.status === 'running' && (
           <div className="flex items-center gap-3 sm:justify-end">
             <span className="text-muted">{item.stage}</span>

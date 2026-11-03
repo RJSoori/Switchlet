@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Job, Output } from '../App'
+import type { Job, Output } from './Workspace'
 import { formatBytes } from '../core/detect'
 import { etaSeconds, zipBlobs } from '../core/jobs'
 import type { MetadataReport } from '../core/ops'
