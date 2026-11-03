@@ -37,6 +37,9 @@ const META: Record<Kind, [label: string, group: Group]> = {
   svg: ['SVG image', 'none'], zip: ['ZIP archive', 'none'], unknown: ['Unknown file', 'none'],
 }
 
+/** Every kind detect() can return. */
+export const KINDS = Object.keys(META) as Kind[]
+
 /** Bytes to read from the start of a file. Large enough to reach a JPEG frame header after EXIF (APP1 ≤ 64 KB). */
 export const HEAD_BYTES = 128 * 1024
 

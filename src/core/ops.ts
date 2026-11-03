@@ -95,7 +95,7 @@ export const AUDIO_KINDS: Kind[] = ['mp3', 'wav', 'm4a', 'ogg', 'flac']
 export const OPS: Record<OpId, OpInfo> = {
   'image.convert': { label: 'Convert or shrink', accepts: IMAGES, auto: true },
   'image.scrub': { label: 'Only remove hidden data', accepts: ['jpeg', 'png', 'webp'] },
-  'image.toPdf': { label: 'Make a PDF', accepts: IMAGES, combines: true },
+  'image.toPdf': { label: 'Images to PDF', accepts: IMAGES, combines: true },
   'pdf.merge': { label: 'Merge into one PDF', accepts: ['pdf'], combines: true, minFiles: 2 },
   'pdf.pages': { label: 'Reorder or remove pages', accepts: ['pdf'], maxFiles: 1 },
   'pdf.split': { label: 'Split into parts', accepts: ['pdf'] },
