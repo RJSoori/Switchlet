@@ -6,7 +6,7 @@ import { defaultOp, type OpId } from './core/ops'
 import { decodeRecipe, type Recipe } from './core/recipes'
 import { Dialog, ImportRecipe, LibraryPanel, useLibrary } from './ui/Library'
 import { Palette, ShortcutHelp, mod, type Command } from './ui/Palette'
-import { Proof, useProofHeadline } from './ui/Proof'
+import { Proof } from './ui/Proof'
 import { DropTarget, IDLE, Workspace, type Incoming, type Item, type WorkspaceApi } from './ui/Workspace'
 
 const SUPPORTED = 'photos (JPG, PNG, WebP, AVIF, HEIC, GIF), PDFs, video (MP4, MOV, WebM, MKV), audio (MP3, WAV, M4A, OGG, FLAC), Markdown, text, HTML, CSV, JSON and Excel files'
@@ -45,7 +45,6 @@ export function App() {
   const [announcement, setAnnouncement] = useState('')
   const picker = useRef<HTMLInputElement>(null)
   const apiRef = useRef<WorkspaceApi | null>(null)
-  const proofHeadline = useProofHeadline()
   const library = useLibrary()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -230,14 +229,6 @@ export function App() {
           <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true"><rect width="32" height="32" rx="7" className="fill-jade" /><path d="M4 21h7M23.4 21H28M11 21l9-9" className="stroke-on-jade" strokeWidth="2.6" strokeLinecap="round" fill="none" /><circle cx="11" cy="21" r="2.2" className="fill-on-jade" /><circle cx="21" cy="21" r="2.4" className="stroke-on-jade" strokeWidth="1.4" fill="none" /></svg>
           Switchlet
         </button>
-        <div className="flex items-center gap-5">
-          <button type="button" onClick={() => setPaletteOpen(true)} className="hidden rounded-md border border-line px-2.5 py-1 text-sm text-muted hover:border-ink hover:text-ink sm:block">
-            Commands <kbd className="ml-1">{mod} K</kbd>
-          </button>
-          <a href="#proof" className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
-            <span className="tabular-nums">{proofHeadline}</span>
-          </a>
-        </div>
       </header>
 
       <div className="mx-auto max-w-6xl px-4 sm:px-8 lg:grid lg:grid-cols-[11.5rem_minmax(0,1fr)] lg:gap-x-12">

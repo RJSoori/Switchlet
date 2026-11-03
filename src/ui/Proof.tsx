@@ -3,12 +3,6 @@
 import { formatBytes } from '../core/detect'
 import { isOwnOrigin, useNetworkLog } from '../core/network'
 
-/** The short version for the page header: measured upload bytes once the service worker is watching. */
-export function useProofHeadline(): string {
-  const { entries, uploaded, measuring } = useNetworkLog()
-  return measuring ? `${formatBytes(uploaded)} uploaded` : `${entries.filter((e) => !isOwnOrigin(e.url)).length} requests to other servers`
-}
-
 export function Proof() {
   const { entries, blocked, uploaded, measuring } = useNetworkLog()
   const elsewhere = entries.filter((e) => !isOwnOrigin(e.url))
