@@ -5,16 +5,11 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// public/_headers is the single source of truth for security headers (Cloudflare Pages reads it).
-// Apply its `/*` block to `vite preview` so local checks run under the real CSP / COOP / COEP.
-const previewHeaders: Record<string, string> = {}
-let block = ''
-for (const line of readFileSync('public/_headers', 'utf8').split(/\r?\n/)) {
-  if (!line.trim() || line.trim().startsWith('#')) continue
-  if (!/^\s/.test(line)) { block = line.trim(); continue }
-  const i = line.indexOf(':')
-  if (block === '/*' && i > 0) previewHeaders[line.slice(0, i).trim()] = line.slice(i + 1).trim()
-}
+// vercel.json is the single source of truth for security headers (Vercel serves them).
+// Apply its all-paths rule to `vite preview` so local checks run under the real CSP / COOP / COEP.
+type HeaderRule = { source: string; headers: { key: string; value: string }[] }
+const rules = (JSON.parse(readFileSync('vercel.json', 'utf8')) as { headers: HeaderRule[] }).headers
+const previewHeaders = Object.fromEntries(rules.find((r) => r.source === '/(.*)')!.headers.map((h) => [h.key, h.value]))
 
 // Dev server: no CSP (Vite's HMR injects inline scripts), but keep cross-origin isolation.
 const isolation = {
@@ -62,7 +57,7 @@ function serviceWorker(): Plugin {
         const sw = bundle['sw.js']
         if (!sw || sw.type !== 'chunk') return
         const publicFiles = readdirSync('public', { recursive: true, withFileTypes: true })
-          .filter((d) => d.isFile() && d.name !== '_headers')
+          .filter((d) => d.isFile())
           .map((d) => `${d.parentPath.replace(/\\/g, '/').replace(/^public\/?/, '')}/${d.name}`.replace(/^\//, ''))
         const files = ['/', ...[...Object.keys(bundle), ...publicFiles].filter((f) => f !== 'sw.js' && !f.endsWith('.map')).map((f) => `/${f}`)].sort()
         let hash = 2166136261 // FNV-1a over the file list
