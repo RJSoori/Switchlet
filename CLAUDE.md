@@ -7,13 +7,13 @@ Phases, decisions and status: [PLAN.md](PLAN.md). Threat model: SECURITY.md.
 ## Stack
 - Vite + React + TypeScript (strict) + Tailwind v4. Vitest (+ jsdom, dev only). Comlink for workers.
 - Conversion libs: jSquash (encoders only), libheif-js (HEIC fallback), exifreader, @cantoo/pdf-lib, pdfjs-dist, mediabunny + gifenc, SheetJS (`xlsx` from the cdn.sheetjs.com tarball, never the stale npm copy), marked, turndown, DOMPurify, fflate.
-- Deliberately NOT used: ffmpeg.wasm (core is 32.7 MB > Cloudflare Pages' 25 MiB file limit, and GPL), pdf-lib (unmaintained since 2022).
+- Deliberately NOT used: ffmpeg.wasm (core is 32.7 MB, and GPL), pdf-lib (unmaintained since 2022).
 - Check current docs and APIs with the Context7 MCP before writing code against any library.
 - **Ask before adding any dependency not listed here.** Exact pins (`.npmrc` save-exact), commit the lockfile.
 
 ## Security (non-negotiable)
 - Zero uploads, no third-party scripts, no analytics, no external requests after load. Self-host every WASM binary and font.
-- Headers live in `public/_headers` (also applied by `vite preview`). Allowed CSP exceptions: `'wasm-unsafe-eval'`, and `blob:` in img-src/media-src. Any other exception must be unavoidable and documented in SECURITY.md.
+- Hosted on Vercel (static only, no functions). Headers live in `vercel.json` (also applied by `vite preview`); see the Vercel checklist in SECURITY.md. Allowed CSP exceptions: `'wasm-unsafe-eval'`, and `blob:` in img-src/media-src. Any other exception must be unavoidable and documented in SECURITY.md.
 - Keep `build.assetsInlineLimit: 0` (no `data:` URIs). COOP same-origin + COEP require-corp stay on.
 - Trusted Types are enforced: `src/harden.ts` stays the first import in `main.tsx` and `worker.ts`. Never build HTML from strings; insert DOM nodes (sanitized with DOMPurify when untrusted). No `blob:` workers.
 - Every input file is hostile: detect type by magic bytes, enforce the size limits (one constants object), decode only in workers, catch crashes, sanitize untrusted HTML with DOMPurify, no SVG input in v1.

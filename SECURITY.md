@@ -3,7 +3,7 @@
 Switchlet converts files entirely inside the browser tab. This document says what that protects against, what it doesn't, and how each rule is enforced.
 
 ## What we promise
-- **Your files never leave your device.** No upload endpoint exists; the site is static files on Cloudflare Pages.
+- **Your files never leave your device.** No upload endpoint exists; the site is static files on Vercel.
 - **No third parties.** No analytics, ads, fonts, CDNs or scripts from anyone else. After the page loads, the only requests are for Switchlet's own code (lazily loaded converters).
 - **Nothing is kept unless you ask.** Files live in memory only while a job runs. Recipes and history store settings and file names in this browser only, never file contents.
 
@@ -61,16 +61,13 @@ All decoding of untrusted files runs in Web Workers, with two narrow exceptions 
 - **Memory wiping is best effort.** JavaScript can't guarantee that the garbage collector hasn't kept copies of a buffer. Worker termination is the strongest guarantee available.
 - **Browser extensions** can read any page, including this one. Switchlet can't prevent that.
 
-## Deploying (Cloudflare Pages checklist)
-The guarantees above hold only if the host serves the files unchanged. On the Cloudflare zone and Pages project, keep these **off**, because each injects scripts or rewrites pages (and the CSP would block them, breaking the page and the "0 requests" count):
-- Web Analytics (including the automatic setup for Pages) and Real User Monitoring
-- Rocket Loader
-- Email Address Obfuscation
-- Zaraz
-- Bot Fight Mode / JavaScript detections (they inject a challenge script)
-- Any "Auto Minify" or HTML rewriting feature still offered
+## Deploying (Vercel checklist)
+The guarantees above hold only if the host serves the files unchanged. Security headers live in `vercel.json` (the only copy; `vite preview` applies the same all-paths rule locally). Build: framework preset Vite, `npm run build`, output `dist`, Node 24. On the Vercel project, keep these **off**, because each injects scripts or serves pages Switchlet didn't write (and the CSP would block them, breaking the page and the "0 requests" count):
+- Vercel Toolbar and Comments: on by default for preview deployments. Turn them off in Project → Settings (or the team settings).
+- Web Analytics and Speed Insights: never enable them (they'd also need a package Switchlet doesn't ship).
+- Firewall challenges: Attack Challenge Mode, and Bot Protection set to Challenge (they serve a challenge page with Vercel's script).
 
-Then check the live site: response headers match `public/_headers`, `crossOriginIsolated` is `true` in the console, the Network tab shows only same-origin `GET`s, and the console shows no CSP or Trusted Types errors.
+Then check the live site: response headers match `vercel.json`, `crossOriginIsolated` is `true` in the console, the Network tab shows only same-origin `GET`s, and the console shows no CSP or Trusted Types errors.
 
 ## Verifying it yourself
 Open your browser's developer tools, go to the Network tab, and convert a file. You will see requests only for Switchlet's own files (`GET`), and none carrying your data. The privacy panel in the app shows the same measurement live.

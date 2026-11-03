@@ -1,6 +1,6 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) built and verified on branch `phase-5` (2026-11-02), waiting for review before merging. Local ports: dev 5180, preview 5181.
+**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) merged 2026-11-03. All planned phases are done. Hosting moved from Cloudflare Pages to **Vercel** (2026-11-03): headers in `vercel.json`, checklist in SECURITY.md. Local ports: dev 5180, preview 5181.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
 Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
@@ -11,7 +11,7 @@ Phase 5 deviations: Trusted Types kept (enforced, two policies). WebRTC is remov
 This is a new build in an empty folder, `R:\Projects\Switchlet`. The app is a file converter where nothing is ever uploaded: every conversion runs in the browser using WASM, Web Workers and the browser's built-in codecs. Privacy is the product, and the app has to show it, not just claim it. It should be fast, need no sign-up, be strictly secured, and keep people coming back with recipes, offline use and a share target.
 
 **Decisions from planning research** (registry and docs checked 2026-11-01):
-- **Video:** Mediabunny + WebCodecs instead of ffmpeg.wasm. The ffmpeg core WASM is 32.7 MB, but Cloudflare Pages allows at most 25 MiB per file. It is also GPL and hasn't been released since Apr 2025. Mediabunny is about 0.3 MB, MPL-2.0, and uses hardware-accelerated codecs.
+- **Video:** Mediabunny + WebCodecs instead of ffmpeg.wasm. The ffmpeg core WASM is 32.7 MB, but Cloudflare Pages (the host at the time) allows at most 25 MiB per file. It is also GPL and hasn't been released since Apr 2025. Mediabunny is about 0.3 MB, MPL-2.0, and uses hardware-accelerated codecs.
 - **PDF:** `@cantoo/pdf-lib`, a maintained fork with the same API, instead of `pdf-lib`, which hasn't had a release since 2022.
 - **SheetJS:** installed from SheetJS's own tarball (`xlsx-0.20.3`), because the npm copy is stuck at 0.18.5. The lockfile pins it with an integrity hash.
 - **Approved new dependencies:** `fflate` (ZIP), `marked` + `turndown` (Markdown ↔ HTML), `exifreader` (metadata report), `jsdom` (dev only), `gifenc` (GIF encoding, which comes with the Mediabunny choice).
@@ -50,8 +50,8 @@ Key simplifications:
 R:\Projects\Switchlet\            (git repo, package name "switchlet")
 ├─ CLAUDE.md  SECURITY.md  .gitignore  .npmrc (save-exact=true)
 ├─ index.html  vite.config.ts  tsconfig.json (strict)  package.json
+├─ vercel.json                 # security headers, single source of truth; vite.config applies them to `vite preview` too
 ├─ public/
-│  ├─ _headers                 # single source of truth; vite.config applies it to `vite preview` too
 │  ├─ manifest.webmanifest  icons/  fonts/ (self-hosted woff2, OFL)
 │  └─ pdfjs/                   # cmaps + standard fonts, copied from pdfjs-dist by a vite build hook
 ├─ src/
@@ -86,7 +86,7 @@ Tests sit next to the code they test (`src/**/*.test.ts`).
 | fflate | 0.8.3 | batch ZIP (level 0 for already-compressed outputs) |
 
 ## Security design
-`public/_headers` (Cloudflare Pages; the same file is applied to `vite preview`, so tests run against the real policy):
+These headers now live in `vercel.json` (same values, JSON form; its all-paths rule is applied to `vite preview`, so tests run against the real policy). Originally planned as Cloudflare's `public/_headers`:
 ```
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types default dompurify
@@ -175,7 +175,7 @@ Every phase follows the same routine:
   - Disable `RTCPeerConnection`, because WebRTC can bypass CSP `connect-src`.
   - Final `npm audit`.
   - Final SECURITY.md.
-- **Deploy checklist:** Cloudflare Web Analytics, Rocket Loader, Email Obfuscation and Zaraz must stay **off**, because they inject scripts.
+- **Deploy checklist:** Cloudflare Web Analytics, Rocket Loader, Email Obfuscation and Zaraz must stay **off**, because they inject scripts. (Replaced by the Vercel checklist in SECURITY.md after the move to Vercel.)
 
 ## Risks
 - **WebCodecs coverage varies.** Codec support differs by browser, and Firefox Android has no WebCodecs. Switchlet detects what's available and explains clearly when something isn't. This is the trade-off accepted for speed, size and licensing.
