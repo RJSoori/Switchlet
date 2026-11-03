@@ -29,7 +29,8 @@ Phases, decisions and status: [PLAN.md](PLAN.md). Threat model: SECURITY.md.
 
 ## UX rules
 - Use the frontend-design skill for UI work: distinctive, calm, confident, not a generic SaaS template.
-- One screen: drop → smart options → result. ≤ 2 clicks from drop to download for common tasks.
+- One page: a category rail (Images, PDF, Video and audio, Docs, Sheets) plus drop → smart options → result. ≤ 2 clicks from drop to download for common tasks.
+- Every way files come in (drop, paste, picker, share target) goes through the one router in `src/core/categories.ts`, on every screen. Route by magic bytes, never by name.
 - Real progress (% + ETA) and cancel on every job. Friendly errors that say what to do next.
 - Responsive, keyboard accessible, WCAG AA contrast, proper ARIA. Light/dark follows the system.
 

@@ -1,6 +1,6 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) merged 2026-11-03. All planned phases are done. Hosting moved from Cloudflare Pages to **Vercel** (2026-11-03): headers in `vercel.json`, checklist in SECURITY.md. Local ports: dev 5180, preview 5181.
+**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) merged 2026-11-03. Phase 6 (category rail and drop routing) built on `phase-6` (2026-11-03), waiting for review. Hosting moved from Cloudflare Pages to **Vercel** (2026-11-03): headers in `vercel.json`, checklist in SECURITY.md. Local ports: dev 5180, preview 5181.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
 Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
@@ -43,7 +43,7 @@ Key simplifications:
 - **Every conversion is a recipe.** A single conversion is a 1-step recipe, and batch mode runs the same recipe over N files. "Save as recipe" just stores the steps already in use, so jobs, recipes and history share one model.
 - **Cancel = `worker.terminate()`.** It's the only way to stop WASM partway through. It also frees the whole WASM heap, which is the strongest available buffer wipe, and isolates crashes caused by hostile files.
 - **Docs ops (Markdown ↔ HTML) run on the main thread**, because DOMPurify and turndown need a DOM. They are capped at 5 MB. CSV/JSON/XLSX processing runs in the worker.
-- **State:** `useReducer` plus context. No state library, no router (the app is one screen), no component library.
+- **State:** `useReducer` plus context. No state library, no URL router (one page; since Phase 6 a category rail switches workspaces in state), no component library.
 
 ## Folder structure
 ```
@@ -176,6 +176,18 @@ Every phase follows the same routine:
   - Final `npm audit`.
   - Final SECURITY.md.
 - **Deploy checklist:** Cloudflare Web Analytics, Rocket Loader, Email Obfuscation and Zaraz must stay **off**, because they inject scripts. (Replaced by the Vercel checklist in SECURITY.md after the move to Vercel.)
+
+**Phase 6: category rail and drop-anywhere routing**
+- **Rail:** Images, PDF, Video and audio, Docs, Sheets (a left rail on desktop, a tab row on phones). Each category is its own workspace, kept mounted while hidden, so a job keeps running on one screen while you work on another.
+- **One router** (`core/categories.ts`): drop, paste, the file picker and the share target all go through it, on every screen. It routes by magic bytes, never by name alone.
+  - Context first: if the current screen has a task for the files, they stay there (images on PDF → Images to PDF). Otherwise they open on their home screen with its default task.
+  - Switching screens moves the rail highlight and announces "Opened in PDF", with no confirm dialog.
+  - Mixed drops open the largest group. The other groups wait as chips in the file strip ("Open 1 PDF").
+  - Unsupported files stay put and get a notice naming each one, while the supported files in the same drop still open.
+  - Files dropped on a screen that's running a job wait in its strip and open when the job finishes. Files for other screens open right away.
+- **Drop overlay:** on every screen. It hints the destination from the drag's MIME types ("Drop to open in PDF") and falls back to "Drop to open". Purely visual, so it never takes focus, and Esc or leaving the window hides it.
+- **Tests:** the Kind → category map against every Kind and the task list, the context rule, mixed grouping and order, unsupported plus supported, and a renamed photo.pdf that is really a JPEG.
+- **Deviations:** files over a size limit are rejected the same way as unsupported ones (named in the notice, never loaded). "Make a PDF" is now called "Images to PDF" and appears on both Images and PDF. A screen pauses its video and audio when hidden.
 
 ## Risks
 - **WebCodecs coverage varies.** Codec support differs by browser, and Firefox Android has no WebCodecs. Switchlet detects what's available and explains clearly when something isn't. This is the trade-off accepted for speed, size and licensing.
