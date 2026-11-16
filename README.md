@@ -11,6 +11,7 @@ A private file converter that runs entirely in your browser. Your files never le
 
 **PDFs**
 - Merge, split and reorder pages
+- Add text, images or your signature to any page
 - Turn images into a PDF, or PDF pages into images
 - Compress, and remove hidden author and edit details
 

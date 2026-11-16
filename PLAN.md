@@ -1,6 +1,6 @@
 # Switchlet — private, in-browser file converter
 
-**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) merged 2026-11-03. Phase 6 (category rail and drop routing) merged 2026-11-16. Hosting moved from Cloudflare Pages to **Vercel** (2026-11-03): headers in `vercel.json`, checklist in SECURITY.md. Local ports: dev 5180, preview 5181.
+**Status:** Phases 1–4 merged to `main` (Phase 4: recipes, PWA, share target, command palette; merged 2026-11-02). Phase 5 (polish and hardening) merged 2026-11-03. Phase 6 (category rail and drop routing) merged 2026-11-16. Phase 7 (add text, images or a signature to a PDF) built on `phase-7` (2026-11-16), waiting for review. Hosting moved from Cloudflare Pages to **Vercel** (2026-11-03): headers in `vercel.json`, checklist in SECURITY.md. Local ports: dev 5180, preview 5181.
 Phase 1 deviations: `@jsquash/png` dropped (OxiPNG encodes raw pixels); the privacy panel's headline number is *requests to other servers* (measured) until the Phase 4 service worker can measure upload bytes.
 Phase 2 deviations: pdf.js draws pages on the main thread (its display layer needs a DOM; parsing stays in pdf.js's worker), documented in CLAUDE.md and SECURITY.md. PDF to images uses the browser's canvas encoder, not jSquash. Merge, split and reorder drop bookmarks and form fields.
 Phase 3 deviations: no MP3 output (would need an extra encoder package); audio formats are M4A (AAC), Ogg (Opus) and WAV. Trim copies from the nearest keyframe when it can instead of always re-encoding. Media tasks run on a button press, not on every settings change.
@@ -188,6 +188,17 @@ Every phase follows the same routine:
 - **Drop overlay:** on every screen. It hints the destination from the drag's MIME types ("Drop to open in PDF") and falls back to "Drop to open". Purely visual, so it never takes focus, and Esc or leaving the window hides it.
 - **Tests:** the Kind → category map against every Kind and the task list, the context rule, mixed grouping and order, unsupported plus supported, and a renamed photo.pdf that is really a JPEG.
 - **Deviations:** files over a size limit are rejected the same way as unsupported ones (named in the notice, never loaded). "Make a PDF" is now called "Images to PDF" and appears on both Images and PDF. A screen pauses its video and audio when hidden.
+
+**Phase 7: add text, images or a signature to a PDF**
+- **Task:** "Add text, image or signature" on the PDF screen (`pdf.stamp`, one PDF at a time). The page is shown with the added items on top; they are dragged into place, resized with a handle, and removed. Arrow keys, + / − and Delete do the same from the keyboard.
+- **Text** is written with the PDF's built-in Helvetica, so it stays sharp and selectable. Text that font can't write (anything beyond Western European letters: Sinhala, Chinese, ✓…) is drawn with the device's own fonts in the worker and placed as a 288 dpi see-through image.
+- **Images** (JPG, PNG, WebP, AVIF, GIF) come in through the one router: while this task is open, a picture that is chosen, dropped or pasted lands on the page being shown instead of replacing the PDF. They are decoded and re-encoded in the worker (JPEG stays JPEG, the rest become PNG to keep transparency), which leaves their own hidden data out.
+- **Signature:** drawn on a pad with a mouse, finger or pen, trimmed to the ink and placed as a see-through picture. It is never stored. The app says plainly that it is a picture of a signature, not a certified digital signature.
+- **Coordinates:** items are kept in PDF points from the top-left of the page as displayed; `toUserSpace` maps them into the page's own space for turned pages (90°, 180°, 270°) and crop boxes.
+- **Kept out of recipes:** like a page order, placements only fit one PDF, so the step is never saved or shared.
+- **No new dependencies.**
+- **Tests:** the coordinate mapping for every quarter turn, text drawn at the placed position on plain and turned pages, which text the built-in font can write, and refused placements. Images, the signature and non-Latin text need a browser and are checked there.
+- **Deviations:** one font and one size control (no bold, colours or multi-line text); no typed-signature styles; a signature isn't remembered between visits; HEIC photos must be converted first. Switching to another task and back keeps what was placed.
 
 ## Risks
 - **WebCodecs coverage varies.** Codec support differs by browser, and Firefox Android has no WebCodecs. Switchlet detects what's available and explains clearly when something isn't. This is the trade-off accepted for speed, size and licensing.

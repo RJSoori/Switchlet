@@ -43,6 +43,12 @@ Switchlet's own code never builds HTML from strings: previews are inserted as DO
 - What a browser can decode or encode varies. When a track can't be converted, Switchlet stops and says why rather than handing back a "video" that lost its picture.
 - **Transparent video** (VP8/VP9 or HEVC with an alpha layer): Mediabunny decodes the alpha layer in helper workers it builds from `blob:` URLs, which `worker-src 'self'` refuses, even when the alpha is about to be discarded. Allowing `blob:` workers would let any script run code built from strings, so instead Switchlet first copies such a file without its alpha layer (no decoding, held in memory) and converts, trims or makes a GIF from that copy.
 
+## Adding text, images or a signature to a PDF
+- A picture placed on a page goes through the same checks as any other file (type from magic bytes, size and pixel limits). While it is being positioned, the browser's own image decoder shows it, like any preview. For the PDF it is decoded and re-encoded in the worker, so its own hidden data (location, camera, dates) never enters the PDF.
+- A drawn signature exists only in this tab's memory, as a picture. It is never written to storage, so it is gone when the files are cleared or the tab closes.
+- It is a picture of a signature, not a cryptographic one: it doesn't prove who signed or that the PDF is unchanged, and the app says so where the signature is drawn.
+- Where things were placed is never saved in a recipe, a recipe link or the history.
+
 ## Service worker, recipes and shared files
 - **Offline copy.** `src/sw.ts` (short on purpose, no Workbox) caches only the build-time list of Switchlet's own files at install and serves them cache-first; pages are network-first with the cached `/` as the offline fallback, headers included, so CSP, COOP and COEP still apply offline. It never stores a response it fetched at runtime, so nothing can be planted in the app cache. `/sw.js` is served `no-cache`, so a new deploy reaches people on their next visit.
 - **Upload meter.** Every non-GET request from Switchlet's pages and workers passes through the service worker, which counts its body bytes and reports them to the privacy panel. POST navigations aren't counted: Switchlet's pages can't submit forms (`form-action 'none'`), so one can only come from another site, and counting it would let any site inflate the meter.
@@ -53,7 +59,7 @@ Switchlet's own code never builds HTML from strings: previews are inserted as DO
 ## Main-thread exceptions
 All decoding of untrusted files runs in Web Workers, with two narrow exceptions that need a DOM:
 - **Markdown ↔ HTML:** DOMPurify and turndown, on inputs capped at 5 MB.
-- **PDF page rendering** (thumbnails, PDF → images): pdf.js parses the PDF in its own worker; only drawing happens on the main thread, sliced so the page stays responsive. PDF scripting (pdf.js's quickjs sandbox) isn't shipped, and XFA forms are disabled.
+- **PDF page rendering** (thumbnails, the page shown while adding text, images or a signature, PDF → images): pdf.js parses the PDF in its own worker; only drawing happens on the main thread, sliced so the page stays responsive. PDF scripting (pdf.js's quickjs sandbox) isn't shipped, and XFA forms are disabled.
 
 ## Known limits (honest list)
 - **Navigation is not covered by CSP.** Malicious code could still leak data by navigating the page to another site. Defence is supply-chain hygiene: few, pinned, audited dependencies and no runtime third-party code.
