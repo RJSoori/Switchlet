@@ -158,6 +158,7 @@ const TASK_HINT: Partial<Record<OpId, string>> = {
   'image.scrub': 'Removes location, camera details and other hidden data. Every pixel stays exactly as it is.',
   'pdf.merge': 'Pages are joined in the order shown below. Use the arrows to change it.',
   'pdf.pages': 'Drag pages into a new order, or remove the ones you don’t need.',
+  'pdf.stamp': 'Put text, pictures or your signature on any page. A drawn signature is a picture of it, not a certified digital signature.',
   'pdf.split': 'Makes a separate PDF for each part.',
   'pdf.toImages': 'Saves one image per page.',
   'pdf.compress': 'Recompresses the photos inside. Text stays sharp.',

@@ -2,9 +2,9 @@
 // workspace mounted (hidden when not shown), so a job keeps running while the person looks at another screen.
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { categoryInfo, tasksIn, type Category } from '../core/categories'
-import { formatBytes, LIMITS, type Detected } from '../core/detect'
+import { formatBytes, LIMITS, type Detected, type Kind } from '../core/detect'
 import { etaSeconds, friendlyError, mediaCapabilities, poolSize, releaseWorkers, runPool, runStep, zipBlobs } from '../core/jobs'
-import { OPS, defaultOp, makeStep, stem, type MediaCaps, type OpId, type Step, type TaskResult } from '../core/ops'
+import { OPS, STAMP_IMAGE_KINDS, defaultOp, makeStep, stem, type MediaCaps, type OpId, type Step, type TaskResult } from '../core/ops'
 import { describeStep, type Recipe } from '../core/recipes'
 import { BatchList } from './Batch'
 import { download, pasteShortcut, percent } from './hooks'
@@ -15,6 +15,7 @@ import { JobResult } from './Outputs'
 import { PageSorter } from './PageSorter'
 import type { Command } from './Palette'
 import { ImageResult } from './Result'
+import { Stamper } from './Stamper'
 
 export type Output = Omit<TaskResult, 'files'> & { files: { blob: Blob; name: string }[] }
 
@@ -103,6 +104,12 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
   const pinnedRef = useRef<Recipe | null>(null)
   pinnedRef.current = library.pinned
   const [autoRun, setAutoRun] = useState(false)
+  /** Pictures placed on a PDF (chosen, dropped, pasted, or a drawn signature). Stamps refer to them by position, so the list only grows. */
+  const [stampImages, setStampImages] = useState<{ file: File; kind: Kind }[]>([])
+  /** What was placed on this PDF, kept while another task is tried, so a stray click doesn't throw the work away. */
+  const lastStamps = useRef<Extract<Step, { op: 'pdf.stamp' }> | null>(null)
+  if (step?.op === 'pdf.stamp') lastStamps.current = step
+  const pickStep = (s: Step) => setStep(s.op === 'pdf.stamp' && lastStamps.current ? lastStamps.current : s)
 
   const patch = useCallback((id: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...p } : it))), [])
 
@@ -116,6 +123,8 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
     setBatch(null)
     setNotice(null)
     setRanKey(null)
+    setStampImages([])
+    lastStamps.current = null
   }, [])
 
   const load = (inc: Incoming) => {
@@ -134,10 +143,10 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
     announce([inc.note, added, note].filter(Boolean).join(' '))
   }
 
-  const convertItem = useCallback(async (item: Item, s: Step, signal: AbortSignal, quietCancel: boolean) => {
+  const convertItem = useCallback(async (item: Item, s: Step, signal: AbortSignal, quietCancel: boolean, extras: { file: File; kind: Kind }[] = []) => {
     patch(item.id, { status: 'running', progress: 0, stage: 'Starting', error: undefined, startedAt: performance.now() })
     try {
-      const r = await runStep(s, [item.file], [item.detected.kind], {
+      const r = await runStep(s, [item.file, ...extras.map((x) => x.file)], [item.detected.kind, ...extras.map((x) => x.kind)], {
         signal,
         onProgress: (progress, stage) => { if (!signal.aborted) patch(item.id, { progress, stage }) },
       })
@@ -168,6 +177,16 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
   useEffect(() => {
     if (!incoming || incoming.nonce === lastNonce.current) return
     lastNonce.current = incoming.nonce
+    // While things are being placed on a PDF, pictures that come in go onto the page instead of replacing the PDF.
+    if (single && step?.op === 'pdf.stamp' && incoming.items.every((it) => it.detected.group === 'image')) {
+      const fits = incoming.items.filter((it) => STAMP_IMAGE_KINDS.includes(it.detected.kind))
+      const left = incoming.items.filter((it) => !fits.includes(it)).map((it) => `“${it.file.name}”`)
+      setStampImages((list) => [...list, ...fits.map((it) => ({ file: it.file, kind: it.detected.kind }))])
+      const note = left.length ? `${left.join(', ')} can’t be placed on a page as ${left.length === 1 ? 'it is' : 'they are'}. Convert ${left.length === 1 ? 'it' : 'them'} to JPG or PNG on the Images screen first.` : null
+      setNotice(note)
+      if (note) announce(note)
+      return
+    }
     if (!running) return load(incoming)
     setQueued((q) => {
       if (!q) return incoming
@@ -214,10 +233,15 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
     if (!single || !step) return
     if (OPS[step.op].manual) return
     if (step.op === 'pdf.pages' && !step.settings.order) return // nothing to save until a page moves
+    if (step.op === 'pdf.stamp' && !step.settings.stamps.some((s) => !('text' in s) || s.text.trim())) {
+      // Nothing is on the pages (yet, or any more), so there's no result to offer.
+      if (single.output || single.status !== 'idle') patch(single.id, { ...IDLE, output: undefined, error: undefined })
+      return
+    }
     const ctrl = new AbortController()
     singleCtrl.current = ctrl
     const timer = setTimeout(async () => {
-      const out = await convertItem(single, step, ctrl.signal, true)
+      const out = await convertItem(single, step, ctrl.signal, true, step.op === 'pdf.stamp' ? stampImages : [])
       if (out) announce(out.files.length === 1 ? `${out.files[0]!.name} is ready, ${formatBytes(out.files[0]!.blob.size)}.` : out.files.length ? `${out.files.length} files are ready.` : out.note ?? 'Done.')
     }, 250)
     return () => { clearTimeout(timer); ctrl.abort() }
@@ -296,7 +320,7 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
       ops={ops}
       step={step}
       kind={kind}
-      onChange={setStep}
+      onChange={pickStep}
       fileCount={items.length}
       caps={caps}
       sheets={single?.output?.sheets}
@@ -322,7 +346,7 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
     ...(step && !running && (single ? OPS[step.op].manual : items.length > 1) ? [{ id: 'run', label: single ? 'Run the task' : runLabel, keys: 'Enter', run: runPrimary }] : []),
     ...(hasResult ? [{ id: 'download', label: 'Download the result', keys: 'D', run: primaryDownload }] : []),
     ...(running ? [{ id: 'cancel', label: 'Cancel', keys: 'Esc', run: cancelRunning }] : []),
-    ...ops.map((op) => ({ id: `task-${op}`, label: `Task: ${OPS[op].label}`, run: () => setStep(makeStep(op, kind)) })),
+    ...ops.map((op) => ({ id: `task-${op}`, label: `Task: ${OPS[op].label}`, run: () => pickStep(makeStep(op, kind)) })),
   ]
   useEffect(() => { if (active) apiRef.current = { commands, runPrimary, primaryDownload, cancelRunning } })
 
@@ -397,7 +421,9 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
               </div>
             </div>
           ) : single && step ? (
-            <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+            // The page editor needs the full width to place things precisely, so its options sit above it, not beside it.
+            <div className={`mt-8 grid gap-10 ${step.op === 'pdf.stamp' ? '' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'}`}>
+              {step.op === 'pdf.stamp' && options}
               <div className="min-w-0 space-y-8">
                 {step.op === 'image.convert' || step.op === 'image.scrub' ? (
                   <ImageResult item={single} onCancel={cancelSingle} onRetry={retrySingle} onDownload={() => recordDownload([single.file])} />
@@ -405,6 +431,18 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
                   <>
                     {step.op === 'pdf.pages' && (
                       <PageSorter file={single.file} order={step.settings.order} onChange={(order) => setStep({ ...step, settings: { order } })} />
+                    )}
+                    {step.op === 'pdf.stamp' && (
+                      <Stamper
+                        key={single.id}
+                        file={single.file}
+                        stamps={step.settings.stamps}
+                        images={stampImages.map((x) => x.file)}
+                        onChange={(stamps) => setStep({ op: 'pdf.stamp', settings: { stamps } })}
+                        onAddImage={(file) => setStampImages((list) => [...list, { file, kind: 'png' }])}
+                        onPick={onPick}
+                        announce={announce}
+                      />
                     )}
                     <JobResult
                       job={single}
@@ -418,7 +456,7 @@ export function Workspace({ category, active, incoming, library, strip, onPick, 
                 )}
                 {single.output && <SaveRecipe key={stepKey} step={step} library={library} />}
               </div>
-              {options}
+              {step.op !== 'pdf.stamp' && options}
             </div>
           ) : (
             <div className="mt-8 space-y-8">
