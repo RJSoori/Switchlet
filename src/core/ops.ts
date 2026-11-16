@@ -27,6 +27,20 @@ export interface ImageSettings {
   maxSide: number | null
 }
 
+/**
+ * Something placed on a PDF page. Positions are in points from the top-left corner of the page as it's displayed.
+ * Text: x, y is where its baseline starts. Image: x, y is its top-left corner, and `image` is its place in the
+ * task's extra files (the files after the PDF).
+ */
+export type Stamp =
+  | { page: number; x: number; y: number; text: string; size: number }
+  | { page: number; x: number; y: number; image: number; width: number; height: number }
+
+export const MAX_STAMPS = 200
+export const MAX_STAMP_TEXT = 500
+/** Images that can be placed on a page: the ones every browser can show while you position them. */
+export const STAMP_IMAGE_KINDS: Kind[] = ['jpeg', 'png', 'gif', 'webp', 'avif']
+
 /** One step of a recipe. A single conversion is a one-step recipe. */
 export type Step =
   | { op: 'image.convert'; settings: ImageSettings }
@@ -34,6 +48,7 @@ export type Step =
   | { op: 'image.toPdf'; settings: { pageSize: PageSize } }
   | { op: 'pdf.merge' }
   | { op: 'pdf.pages'; settings: { order: number[] | null } }
+  | { op: 'pdf.stamp'; settings: { stamps: Stamp[] } }
   | { op: 'pdf.split'; settings: { ranges: string } }
   | { op: 'pdf.toImages'; settings: { format: 'png' | 'jpeg'; dpi: number } }
   | { op: 'pdf.compress'; settings: { strength: Strength } }
@@ -98,6 +113,7 @@ export const OPS: Record<OpId, OpInfo> = {
   'image.toPdf': { label: 'Images to PDF', accepts: IMAGES, combines: true },
   'pdf.merge': { label: 'Merge into one PDF', accepts: ['pdf'], combines: true, minFiles: 2 },
   'pdf.pages': { label: 'Reorder or remove pages', accepts: ['pdf'], maxFiles: 1 },
+  'pdf.stamp': { label: 'Add text, image or signature', accepts: ['pdf'], maxFiles: 1 },
   'pdf.split': { label: 'Split into parts', accepts: ['pdf'] },
   'pdf.toImages': { label: 'Save pages as images', accepts: ['pdf'], main: true },
   'pdf.compress': { label: 'Shrink', accepts: ['pdf'] },
@@ -177,6 +193,7 @@ export function makeStep(op: OpId, kind: Kind): Step {
     }
     case 'image.toPdf': return { op, settings: { pageSize: 'a4' } }
     case 'pdf.pages': return { op, settings: { order: null } }
+    case 'pdf.stamp': return { op, settings: { stamps: [] } }
     case 'pdf.split': return { op, settings: { ranges: '' } }
     case 'pdf.toImages': return { op, settings: { format: 'jpeg', dpi: 150 } }
     case 'pdf.compress': return { op, settings: { strength: 'balanced' } }

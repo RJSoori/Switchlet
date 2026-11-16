@@ -26,6 +26,7 @@ describe('recipe links', () => {
     expect(decodeRecipe(raw({ v: 1, name: 'x', steps: [{ op: 'image.convert', settings: { format: 'gif', quality: 80, maxSide: null } }] }))).toMatch(/doesn’t recognise/)
     expect(decodeRecipe(raw({ v: 1, name: 'x', steps: [{ op: '__proto__' }] }))).toMatch(/doesn’t recognise/)
     expect(decodeRecipe(raw({ v: 1, name: 'x', steps: [{ op: 'pdf.pages', settings: { order: [0] } }] }))).toMatch(/doesn’t recognise/)
+    expect(decodeRecipe(raw({ v: 1, name: 'x', steps: [{ op: 'pdf.stamp', settings: { stamps: [{ page: 0, x: 1, y: 1, text: 'Paid', size: 12 }] } }] }))).toMatch(/doesn’t recognise/)
     expect(decodeRecipe(raw({ v: 2, name: 'x', steps: [] }))).toMatch(/broken/)
     expect(decodeRecipe(raw({ v: 1, name: '', steps: [heicToJpg] }))).toMatch(/broken/)
     expect(decodeRecipe(raw({ v: 1, name: 'x', steps: [heicToJpg, heicToJpg] }))).toMatch(/newer version/)

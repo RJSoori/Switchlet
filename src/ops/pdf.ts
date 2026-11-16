@@ -3,10 +3,14 @@
 // unreachable objects are dropped before saving, so leftovers from earlier edits of a file never
 // travel into the new copy.
 import {
-  EncryptedPDFError, PDFArray, PDFDict, PDFDocument, PDFName, PDFNull, PDFNumber, PDFRawStream, PDFRef, PDFStream, type PDFObject,
+  EncryptedPDFError, PDFArray, PDFDict, PDFDocument, PDFName, PDFNull, PDFNumber, PDFRawStream, PDFRef, PDFStream, StandardFonts, degrees,
+  type PDFFont, type PDFImage, type PDFObject,
 } from '@cantoo/pdf-lib'
 import { LIMITS } from '../core/detect'
-import { parseRanges, stem, type Finding, type InFile, type OutFile, type PageSize, type Strength, type TaskResult } from '../core/ops'
+import {
+  MAX_STAMPS, MAX_STAMP_TEXT, fitWithin, parseRanges, stem,
+  type Finding, type InFile, type OutFile, type PageSize, type Stamp, type Strength, type TaskResult,
+} from '../core/ops'
 import { decodeImage, drawPixels, encodeJpeg } from './decode'
 import { DecodeError, NoticeError } from './errors'
 
@@ -158,6 +162,141 @@ export async function reorder(f: InFile, order: number[] | null): Promise<TaskRe
   return {
     files: [pdfFile(`${stem(f.name)}-edited.pdf`, await pick(src, indices))],
     note: `${indices.length} ${indices.length === 1 ? 'page' : 'pages'}${removed > 0 ? `, ${removed} removed` : ''}.`,
+  }
+}
+
+/* ---------- add text, images or a signature ---------- */
+
+type Box = { x: number; y: number; width: number; height: number }
+
+/** The quarter turn a page is displayed with (0, 90, 180 or 270 degrees clockwise). Anything else counts as none, as in PDF viewers. */
+export const quarterTurn = (angle: number) => (angle % 90 === 0 ? ((angle % 360) + 360) % 360 : 0)
+
+/**
+ * A point on the page as it's displayed (points from its top-left corner) in the page's own coordinates,
+ * which start at the bottom-left of the unturned page. `crop` is the visible part of the page.
+ */
+export function toUserSpace(crop: Box, turn: number, vx: number, vy: number): { x: number; y: number } {
+  switch (turn) {
+    case 90: return { x: crop.x + vy, y: crop.y + vx }
+    case 180: return { x: crop.x + crop.width - vx, y: crop.y + vy }
+    case 270: return { x: crop.x + crop.width - vy, y: crop.y + crop.height - vx }
+    default: return { x: crop.x + vx, y: crop.y + crop.height - vy }
+  }
+}
+
+/** Runs of spaces and line breaks become one space, the way the editor shows the text. */
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+/** Whether the font has every character. (Asked to write one it lacks, pdf-lib quietly puts a "?" in its place.) */
+export function canWrite(font: PDFFont, text: string): boolean {
+  const known = new Set(font.getCharacterSet())
+  return [...text].every((ch) => known.has(ch.codePointAt(0)!))
+}
+
+/**
+ * Text the built-in PDF font can't write (it only has Western European letters) is drawn with this device's own
+ * fonts and placed as a sharp, see-through image. Sizes are returned in points.
+ */
+async function textAsImage(text: string, size: number) {
+  const ctx = new OffscreenCanvas(1, 1).getContext('2d')
+  if (!ctx) throw new Error('Canvas unavailable')
+  const measure = (scale: number) => {
+    ctx.font = `${size * scale}px Helvetica, Arial, sans-serif`
+    const m = ctx.measureText(text)
+    return {
+      width: Math.ceil(m.width + m.actualBoundingBoxLeft) + 2,
+      ascent: Math.ceil(Math.max(m.fontBoundingBoxAscent ?? 0, m.actualBoundingBoxAscent)) + 1,
+      descent: Math.ceil(Math.max(m.fontBoundingBoxDescent ?? 0, m.actualBoundingBoxDescent)) + 1,
+    }
+  }
+  const rough = measure(1)
+  const scale = Math.min(4, 8000 / Math.max(rough.width, rough.ascent + rough.descent)) // 4 = 288 dpi; less only for very long lines
+  const m = measure(scale)
+  const canvas = new OffscreenCanvas(m.width, m.ascent + m.descent)
+  const draw = canvas.getContext('2d')
+  if (!draw) throw new Error('Canvas unavailable')
+  draw.font = ctx.font
+  draw.fillText(text, 0, m.ascent)
+  const png = await (await canvas.convertToBlob()).arrayBuffer()
+  return { png, width: m.width / scale, height: (m.ascent + m.descent) / scale, ascent: m.ascent / scale }
+}
+
+const STAMP_MAX_SIDE = 2000
+
+/** Re-encoding leaves the picture's own hidden data (location, camera, dates) out of the PDF. */
+async function embedStampImage(doc: PDFDocument, f: InFile): Promise<PDFImage> {
+  const bitmap = await decodeImage(f.bytes, f.kind)
+  try {
+    if (f.kind === 'jpeg') {
+      const pixels = drawPixels(bitmap, STAMP_MAX_SIDE, '#fff')
+      const jpeg = await encodeJpeg(pixels, 90)
+      pixels.data.fill(0)
+      return await doc.embedJpg(jpeg)
+    }
+    // Everything else may be see-through (a signature with a clear background), so it's stored without loss.
+    // ponytail: opaque WebP/AVIF photos are stored losslessly too (a larger file); switch those to JPEG if that matters.
+    const { width, height } = fitWithin(bitmap.width, bitmap.height, STAMP_MAX_SIDE)
+    const canvas = new OffscreenCanvas(width, height)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas unavailable')
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    return await doc.embedPng(await (await canvas.convertToBlob()).arrayBuffer())
+  } finally {
+    bitmap.close()
+  }
+}
+
+/** Draw text and images on top of the pages. Everything else in the PDF (links, form fields, bookmarks) stays as it was. */
+export async function stamp(f: InFile, stamps: Stamp[], images: InFile[], progress: Progress = () => {}): Promise<TaskResult> {
+  const doc = await open(f)
+  if (stamps.length > MAX_STAMPS) throw new NoticeError(`That’s more than ${MAX_STAMPS} items on one PDF. Remove some, then try again.`)
+  const mismatch = () => new NoticeError('Something placed on this PDF doesn’t fit it any more. Remove it and add it again.')
+  const ok = (...n: number[]) => n.every(Number.isFinite)
+  const pages = doc.getPages()
+  const font = doc.embedStandardFont(StandardFonts.Helvetica)
+  const embedded = new Map<number, PDFImage>()
+  const touched = new Set<number>()
+  let drawn = 0
+
+  for (const [i, s] of stamps.entries()) {
+    progress((0.9 * i) / stamps.length, 'Adding to the pages')
+    const page = pages[s.page]
+    if (!page || !ok(s.x, s.y)) throw mismatch()
+    const crop = page.getCropBox()
+    const turn = quarterTurn(page.getRotation().angle)
+    const rotate = degrees(turn)
+    /** Place an image whose top-left corner is at (x, top) on the displayed page. PDF images hang from their bottom-left corner. */
+    const drawImage = (image: PDFImage, x: number, top: number, width: number, height: number) =>
+      page.drawImage(image, { ...toUserSpace(crop, turn, x, top + height), width, height, rotate })
+
+    if ('text' in s) {
+      const text = oneLine(s.text)
+      if (!text) continue
+      if (text.length > MAX_STAMP_TEXT || !ok(s.size) || s.size < 2 || s.size > 500) throw mismatch()
+      if (canWrite(font, text)) {
+        page.drawText(text, { ...toUserSpace(crop, turn, s.x, s.y), size: s.size, font, rotate })
+      } else {
+        const t = await textAsImage(text, s.size)
+        drawImage(await doc.embedPng(t.png), s.x, s.y - t.ascent, t.width, t.height)
+      }
+    } else {
+      const source = images[s.image]
+      if (!source || !ok(s.width, s.height) || s.width <= 0 || s.height <= 0) throw mismatch()
+      if (!embedded.has(s.image)) embedded.set(s.image, await embedStampImage(doc, source))
+      drawImage(embedded.get(s.image)!, s.x, s.y, s.width, s.height)
+    }
+    touched.add(s.page)
+    drawn++
+  }
+  if (!drawn) throw new NoticeError('There’s nothing to add yet. Add some text, an image or a signature first.')
+
+  progress(0.95, 'Saving')
+  await doc.flush() // writes the font and images now, so save() can drop the font if no text used it
+  return {
+    files: [pdfFile(`${stem(f.name)}-edited.pdf`, await save(doc))],
+    note: `Added ${drawn} ${drawn === 1 ? 'item' : 'items'} to ${touched.size === 1 ? `page ${[...touched][0]! + 1}` : `${touched.size} pages`}.`,
   }
 }
 

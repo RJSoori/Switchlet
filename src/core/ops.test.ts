@@ -17,7 +17,7 @@ describe('op registry', () => {
   it('offers only tasks that fit every dropped file', () => {
     expect(opsFor(['jpeg'])).toEqual(['image.convert', 'image.scrub', 'image.toPdf'])
     expect(opsFor(['heic', 'jpeg'])).toEqual(['image.convert', 'image.toPdf'])
-    expect(opsFor(['pdf'])).toEqual(['pdf.pages', 'pdf.split', 'pdf.toImages', 'pdf.compress', 'pdf.scrub'])
+    expect(opsFor(['pdf'])).toEqual(['pdf.pages', 'pdf.stamp', 'pdf.split', 'pdf.toImages', 'pdf.compress', 'pdf.scrub'])
     expect(opsFor(['pdf', 'pdf'])).toEqual(['pdf.merge', 'pdf.split', 'pdf.toImages', 'pdf.compress', 'pdf.scrub'])
     expect(opsFor(['pdf', 'jpeg'])).toEqual([])
     expect(opsFor(['markdown', 'html'])).toEqual(['doc.convert'])

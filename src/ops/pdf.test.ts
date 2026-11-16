@@ -1,8 +1,8 @@
-import { PDFDict, PDFDocument, PDFName, PDFString } from '@cantoo/pdf-lib'
+import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream, degrees } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { NoticeError } from './errors'
 import type { InFile } from '../core/ops'
-import { compress, merge, pageLayout, reorder, scrubPdf, split } from './pdf'
+import { canWrite, compress, merge, pageLayout, quarterTurn, reorder, scrubPdf, split, stamp, toUserSpace } from './pdf'
 
 /** A PDF whose page i is (100 + i) points wide, so page order can be read back from widths. */
 async function makePdf(pages: number, edit?: (doc: PDFDocument) => void, compact = false): Promise<Uint8Array<ArrayBuffer>> {
@@ -38,6 +38,63 @@ describe('merge, split, reorder', () => {
     expect(r.note).toBe('2 pages, 1 removed.')
     await expect(reorder(file(await makePdf(3)), [])).rejects.toThrow(/at least one page/)
     await expect(reorder(file(await makePdf(3)), [7])).rejects.toThrow(NoticeError)
+  })
+})
+
+describe('add text, images or a signature', () => {
+  /** What was drawn on the pages, as PDF drawing commands. */
+  const drawing = async (data: ArrayBuffer) =>
+    (await objectsOf(data)).filter((o) => o instanceof PDFRawStream).map((o) => text(decodePDFRawStream(o).decode())).join('\n')
+  const hex = (s: string) => [...s].map((c) => c.charCodeAt(0).toString(16).toUpperCase()).join('')
+
+  it('maps a point on the displayed page into the page’s own coordinates, for every quarter turn', () => {
+    const crop = { x: 10, y: 20, width: 200, height: 300 } // displayed 200 × 300, or 300 × 200 when turned
+    expect(toUserSpace(crop, 0, 0, 0)).toEqual({ x: 10, y: 320 }) // top-left of the display is the top-left of the page
+    expect(toUserSpace(crop, 0, 200, 300)).toEqual({ x: 210, y: 20 })
+    expect(toUserSpace(crop, 90, 0, 0)).toEqual({ x: 10, y: 20 }) // turned clockwise: the page's bottom-left shows at the top-left
+    expect(toUserSpace(crop, 90, 300, 200)).toEqual({ x: 210, y: 320 })
+    expect(toUserSpace(crop, 180, 0, 0)).toEqual({ x: 210, y: 20 })
+    expect(toUserSpace(crop, 180, 200, 300)).toEqual({ x: 10, y: 320 })
+    expect(toUserSpace(crop, 270, 0, 0)).toEqual({ x: 210, y: 320 })
+    expect(toUserSpace(crop, 270, 300, 200)).toEqual({ x: 10, y: 20 })
+    expect([0, 90, -90, 450, 45].map(quarterTurn)).toEqual([0, 90, 270, 90, 0])
+  })
+
+  it('writes text where it was placed, upright on turned pages too, and leaves the rest of the PDF alone', async () => {
+    const bytes = await makePdf(2, (doc) => {
+      doc.setTitle('Lease')
+      doc.getPages()[1]!.setRotation(degrees(90))
+    })
+    const r = await stamp(file(bytes), [
+      { page: 0, x: 10, y: 20, text: '  Jane   Doe ', size: 12 },
+      { page: 1, x: 10, y: 20, text: 'Paid', size: 9 },
+      { page: 1, x: 5, y: 5, text: '   ', size: 9 }, // emptied text is skipped
+    ], [])
+    expect(r.files[0]!.name).toBe('report-edited.pdf')
+    expect(r.note).toBe('Added 2 items to 2 pages.')
+    const out = r.files[0]!.data
+    expect(await widths(out)).toEqual([100, 101])
+    const drawn = await drawing(out)
+    expect(drawn).toContain(`1 0 0 1 10 180 Tm\n<${hex('Jane Doe')}> Tj`) // 20 from the top of a 200-point page
+    expect(drawn).toMatch(new RegExp(`\\S+ 1 -1 \\S+ 20 10 Tm\n<${hex('Paid')}> Tj`)) // quarter turn, to read upright when displayed
+    const again = await PDFDocument.load(out, { updateMetadata: false })
+    expect(again.getTitle()).toBe('Lease')
+    expect(again.getPages()[1]!.getRotation().angle).toBe(90)
+  })
+
+  it('knows which text the built-in font can’t write, so it is never saved as question marks', async () => {
+    const font = (await PDFDocument.create()).embedStandardFont(StandardFonts.Helvetica)
+    expect(canWrite(font, 'Zoë Müller, £40 & €12 – “paid”')).toBe(true)
+    for (const other of ['අනුමතයි', '承認', 'Paid ✓', 'Привет', '😀']) expect(canWrite(font, other), other).toBe(false)
+  })
+
+  it('refuses placements that don’t fit the PDF, and an empty job', async () => {
+    const pdf = async () => file(await makePdf(1))
+    await expect(stamp(await pdf(), [], [])).rejects.toThrow(/nothing to add yet/)
+    await expect(stamp(await pdf(), [{ page: 0, x: 1, y: 1, text: ' ', size: 12 }], [])).rejects.toThrow(/nothing to add yet/)
+    await expect(stamp(await pdf(), [{ page: 3, x: 1, y: 1, text: 'x', size: 12 }], [])).rejects.toThrow(NoticeError)
+    await expect(stamp(await pdf(), [{ page: 0, x: NaN, y: 1, text: 'x', size: 12 }], [])).rejects.toThrow(NoticeError)
+    await expect(stamp(await pdf(), [{ page: 0, x: 1, y: 1, image: 0, width: 50, height: 20 }], [])).rejects.toThrow(NoticeError)
   })
 })
 

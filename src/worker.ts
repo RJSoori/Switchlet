@@ -6,7 +6,7 @@ import type { Kind } from './core/detect'
 import { FORMAT_MIME, imageOutputName, type InFile, type Step, type TaskResult } from './core/ops'
 import type { Progress } from './ops/image'
 
-/** A step plus its input files. Single-file tasks get one file; merge and images → PDF get several. */
+/** A step plus its input files. Single-file tasks get one file; merge and images → PDF get several; pdf.stamp gets the PDF, then the images placed on it. */
 export type Task = Step & { files: File[]; kinds: Kind[] }
 
 const SCRUB_MIME: Partial<Record<Kind, string>> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
@@ -29,6 +29,7 @@ async function dispatch(task: Task, inputs: InFile[], progress: Progress): Promi
     case 'image.toPdf': return (await import('./ops/pdf')).imagesToPdf(inputs, task.settings.pageSize, progress)
     case 'pdf.merge': return (await import('./ops/pdf')).merge(inputs, progress)
     case 'pdf.pages': return (await import('./ops/pdf')).reorder(one, task.settings.order)
+    case 'pdf.stamp': return (await import('./ops/pdf')).stamp(one, task.settings.stamps, inputs.slice(1), progress)
     case 'pdf.split': return (await import('./ops/pdf')).split(one, task.settings.ranges, progress)
     case 'pdf.compress': return (await import('./ops/pdf')).compress(one, task.settings.strength, progress)
     case 'pdf.scrub': return (await import('./ops/pdf')).scrubPdf(one)

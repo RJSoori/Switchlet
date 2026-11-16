@@ -26,8 +26,8 @@ export const CATEGORIES: CategoryInfo[] = [
   },
   {
     id: 'pdf', label: 'PDF', noun: ['PDF', 'PDFs'], drop: 'PDFs or photos',
-    blurb: 'Merge, split, reorder, shrink or clean up PDFs, save pages as images, or make one PDF from photos.',
-    tasks: ['pdf.merge', 'pdf.pages', 'pdf.split', 'pdf.toImages', 'pdf.compress', 'pdf.scrub', 'image.toPdf'],
+    blurb: 'Merge, split, reorder, sign, shrink or clean up PDFs, add text and images, save pages as images, or make one PDF from photos.',
+    tasks: ['pdf.merge', 'pdf.pages', 'pdf.stamp', 'pdf.split', 'pdf.toImages', 'pdf.compress', 'pdf.scrub', 'image.toPdf'],
   },
   {
     id: 'media', label: 'Video and audio', noun: ['video or audio file', 'video and audio files'], drop: 'videos or audio',

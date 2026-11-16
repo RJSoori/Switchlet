@@ -66,8 +66,8 @@ export function validateStep(raw: unknown): Step | null {
     }
     case 'media.audio':
       return oneOf(s.format, ['m4a', 'ogg', 'wav'] as AudioFormat[]) ? { op, settings: { format: s.format } } : null
-    case 'pdf.pages':
-      return null // a page order only makes sense for one particular PDF
+    case 'pdf.pages': case 'pdf.stamp':
+      return null // a page order, or where things sit on a page, only makes sense for one particular PDF
   }
 }
 
@@ -129,6 +129,7 @@ export function describeStep(step: Step): string {
     case 'pdf.scrub': return 'Remove hidden data from PDFs'
     case 'pdf.merge': return 'Merge PDFs'
     case 'pdf.pages': return 'Reorder PDF pages'
+    case 'pdf.stamp': return 'Add text, images or a signature to a PDF'
     case 'doc.convert': return 'Markdown and HTML conversion'
   }
 }
