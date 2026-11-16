@@ -173,6 +173,18 @@ type Box = { x: number; y: number; width: number; height: number }
 export const quarterTurn = (angle: number) => (angle % 90 === 0 ? ((angle % 360) + 360) % 360 : 0)
 
 /**
+ * The part of a page that viewers (and the editor's preview) show: the crop box where it lies on the paper,
+ * or the whole paper if they don't overlap. Boxes may be written corner-swapped, so both are straightened first.
+ * ponytail: pages with a UserUnit (rare, very large drawings) aren't scaled; divide by it here if they turn up.
+ */
+export function visibleBox(media: Box, crop: Box): Box {
+  const edges = (b: Box) => [Math.min(b.x, b.x + b.width), Math.min(b.y, b.y + b.height), Math.max(b.x, b.x + b.width), Math.max(b.y, b.y + b.height)] as const
+  const [m, c] = [edges(media), edges(crop)]
+  const [x0, y0, x1, y1] = [Math.max(m[0], c[0]), Math.max(m[1], c[1]), Math.min(m[2], c[2]), Math.min(m[3], c[3])]
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : { x: m[0], y: m[1], width: m[2] - m[0], height: m[3] - m[1] }
+}
+
+/**
  * A point on the page as it's displayed (points from its top-left corner) in the page's own coordinates,
  * which start at the bottom-left of the unturned page. `crop` is the visible part of the page.
  */
@@ -264,7 +276,7 @@ export async function stamp(f: InFile, stamps: Stamp[], images: InFile[], progre
     progress((0.9 * i) / stamps.length, 'Adding to the pages')
     const page = pages[s.page]
     if (!page || !ok(s.x, s.y)) throw mismatch()
-    const crop = page.getCropBox()
+    const crop = visibleBox(page.getMediaBox(), page.getCropBox())
     const turn = quarterTurn(page.getRotation().angle)
     const rotate = degrees(turn)
     /** Place an image whose top-left corner is at (x, top) on the displayed page. PDF images hang from their bottom-left corner. */

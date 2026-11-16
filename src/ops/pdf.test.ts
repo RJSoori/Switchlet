@@ -2,7 +2,7 @@ import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, 
 import { describe, expect, it } from 'vitest'
 import { NoticeError } from './errors'
 import type { InFile } from '../core/ops'
-import { canWrite, compress, merge, pageLayout, quarterTurn, reorder, scrubPdf, split, stamp, toUserSpace } from './pdf'
+import { canWrite, compress, merge, pageLayout, quarterTurn, reorder, scrubPdf, split, stamp, toUserSpace, visibleBox } from './pdf'
 
 /** A PDF whose page i is (100 + i) points wide, so page order can be read back from widths. */
 async function makePdf(pages: number, edit?: (doc: PDFDocument) => void, compact = false): Promise<Uint8Array<ArrayBuffer>> {
@@ -80,6 +80,14 @@ describe('add text, images or a signature', () => {
     const again = await PDFDocument.load(out, { updateMetadata: false })
     expect(again.getTitle()).toBe('Lease')
     expect(again.getPages()[1]!.getRotation().angle).toBe(90)
+  })
+
+  it('works out the part of the page that is shown, as PDF viewers do', () => {
+    const paper = { x: 0, y: 0, width: 595, height: 842 }
+    expect(visibleBox(paper, { x: 40, y: 40, width: 515, height: 762 })).toEqual({ x: 40, y: 40, width: 515, height: 762 })
+    expect(visibleBox(paper, { x: -50, y: 100, width: 700, height: 2000 })).toEqual({ x: 0, y: 100, width: 595, height: 742 }) // a crop box larger than the paper
+    expect(visibleBox({ x: 595, y: 842, width: -595, height: -842 }, paper)).toEqual(paper) // corners written the other way round
+    expect(visibleBox(paper, { x: 900, y: 900, width: 10, height: 10 })).toEqual(paper) // no overlap: the whole paper
   })
 
   it('knows which text the built-in font can’t write, so it is never saved as question marks', async () => {
